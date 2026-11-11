@@ -1,7 +1,14 @@
-# Server deploy: join the Qlix stack's network so PortfolioOS reaches backend-adk directly.
+# Server deploy overrides (Compose ≥ 2.24):
 #   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+# - Only the web app is published, on 127.0.0.1:${WEB_PORT}; nginx fronts it with HTTPS.
+# - PortfolioOS reaches Qlix backend-adk over the Qlix stack's Docker network.
 services:
+  postgres:
+    ports: !reset []
+
   portfolio:
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-3101}:3001"
     environment:
       QLIX_BACKEND_URL: ${QLIX_BACKEND_URL:-http://backend:4000}
     networks: [default, qlix]
