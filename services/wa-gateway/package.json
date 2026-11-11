@@ -1,0 +1,16 @@
+{
+  "name": "@portfolio-os/wa-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --watch src/index.js",
+    "start": "node --env-file=../../.env src/index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "pino": "^9.5.0"
+  }
+}

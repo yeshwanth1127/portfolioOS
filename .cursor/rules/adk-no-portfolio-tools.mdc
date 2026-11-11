@@ -1,0 +1,13 @@
+---
+description: Never hardcode Portfolio tools into ADK; use Portfolio tool catalogue
+alwaysApply: true
+---
+
+# ADK stays product-agnostic
+
+Do **not** modify `qlix-monorepo/adk_new`, `qlix-final`, or `backend-adk` to add or document PortfolioOS tools.
+
+- Tools and permissions live in `packages/api` (`agent-tools.js`, `domain/`).
+- Catalogue: `GET /agent/tools/catalog` — agents must discover tools from here.
+- Invoke: `POST /agent/tools/portfolio_os`.
+- See root [AGENTS.md](../../AGENTS.md).

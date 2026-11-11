@@ -1,0 +1,15 @@
+node_modules/
+.env
+.qlix-agent.json
+.next/
+dist/
+*.log
+.next-share/
+apps/web/.next-share/
+.live/
+.env.*
+!.env.example
+!.env.docker.example
+!.env.server.example
+__pycache__/
+.DS_Store

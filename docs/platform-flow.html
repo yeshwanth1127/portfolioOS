@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PortfolioOS — how it works</title>
+<style>
+  :root {
+    --bg: #0c1116;
+    --panel: #151c24;
+    --line: #2a3644;
+    --text: #e8eef4;
+    --muted: #8b9aab;
+    --accent: #6ee7b7;
+    --amber: #fbbf24;
+    --blue: #7dd3fc;
+    --rose: #fda4af;
+    --violet: #c4b5fd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.45;
+  }
+  header {
+    padding: 28px 32px 8px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 { font-weight: 500; font-size: 1.85rem; margin: 0 0 6px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 0.98rem; }
+  nav {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    max-width: 1100px; margin: 0 auto 8px; padding: 0 32px 12px;
+  }
+  nav button {
+    font: inherit; font-size: 0.92rem;
+    background: transparent; color: var(--text);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; cursor: pointer;
+  }
+  nav button.on { background: var(--accent); color: #06281c; border-color: var(--accent); }
+  main { max-width: 1100px; margin: 0 auto; padding: 8px 32px 48px; }
+  section { display: none; }
+  section.on { display: block; }
+  .grid { display: grid; gap: 12px; }
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    align-items: stretch;
+  }
+  @media (max-width: 860px) { .flow { grid-template-columns: 1fr 1fr; } }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 1rem; font-weight: 600; }
+  .card p, .card li { color: var(--muted); font-size: 0.9rem; margin: 0; }
+  .card ul { margin: 6px 0 0; padding-left: 1.1rem; }
+  .tag { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+  .arrow-row { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 4px 0 2px; }
+  .steps { counter-reset: s; display: grid; gap: 10px; }
+  .step {
+    display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+  }
+  .step::before {
+    counter-increment: s; content: counter(s);
+    width: 36px; height: 36px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: #1e2a22; color: var(--accent); font-family: ui-monospace, Menlo, monospace;
+  }
+  .step h3 { margin: 2px 0 4px; font-size: 1rem; }
+  .step p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84em; color: var(--blue); }
+  .note { margin-top: 14px; color: var(--muted); font-size: 0.88rem; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; background: #243044; color: var(--blue); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PortfolioOS — working flow</h1>
+  <p class="sub">What is actually running: one login page, one API, Postgres, and an optional WhatsApp path through Qlix <code>adk_new</code>. Same product, one file.</p>
+</header>
+<nav>
+  <button class="on" data-tab="map">System map</button>
+  <button data-tab="roles">Who sees what</button>
+  <button data-tab="day">A working day</button>
+  <button data-tab="wa">WhatsApp + agent</button>
+  <button data-tab="now">What is live now</button>
+</nav>
+<main>
+  <section id="map" class="on">
+    <div class="flow">
+      <article class="card">
+        <div class="tag">People</div>
+        <h3>Browser or WhatsApp</h3>
+        <p>Thyagu (owner), 7 managers, SCALE vice manager, TMS team lead, team members. Dashboard is <code>localhost:3001</code>. WhatsApp hits the gateway on <code>:3938</code>.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Web</div>
+        <h3>Next.js dashboard</h3>
+        <p>One route: <code>/</code>. Login posts email and password. After login the page shows organisations. Owners also see readiness.</p>
+      </article>
+      <article class="card">
+        <div class="tag">API</div>
+        <h3>Node API :4001</h3>
+        <p>JWT identifies a membership. Every query sets <code>app.role</code>, <code>app.org_id</code>, <code>app.membership_id</code> so Postgres row security can apply.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Data</div>
+        <h3>Postgres :5433</h3>
+        <p>7 organisations, 32 people, 61 KPIs. Submissions, sign-off, scores, and agent tool calls live here. Docker, not the Mac Postgres on 5432.</p>
+      </article>
+    </div>
+    <p class="arrow-row">WhatsApp does not talk to the database. It goes gateway → agent-runner (:3940) → adk_new → the same API.</p>
+    <div class="flow">
+      <article class="card">
+        <div class="tag">Transport</div>
+        <h3>WA gateway</h3>
+        <p>Looks up the phone, picks the agent, queues the reply. Running in stub mode (<code>WA_DISABLE=1</code>) so messages are logged, not sent on WhatsApp.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Bridge</div>
+        <h3>Agent runner</h3>
+        <p>Asks the API for a short-lived run token, then starts the Python handler in <code>qlix-monorepo/adk_new</code>.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Agent</div>
+        <h3>portfolio_os tools</h3>
+        <p>Readiness, KPI, pending, submit, and (owner only, with confirm) target updates. Tools call <code>POST /agent/tools/portfolio_os</code>.</p>
+      </article>
+      <article class="card">
+        <div class="tag">Same lock</div>
+        <h3>One permission point</h3>
+        <p>The model never holds a database password. A manager asking about another organisation gets nothing, because the API never queries outside their org.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="roles">
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Person</th><th>Login</th><th>Role</th><th>On /</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Thyagu Sir</td>
+            <td><code>owner@portfolio.local</code><br><code>password123</code></td>
+            <td><span class="pill">owner L4</span></td>
+            <td>All 7 organisations plus the readiness panel (unnamed people, KPIs with no target).</td>
+          </tr>
+          <tr>
+            <td>A manager, e.g. Nagaraj (SAI)</td>
+            <td><code>nagaraj@portfolio.local</code><br><code>password123</code></td>
+            <td><span class="pill">manager</span></td>
+            <td>Only SAI. Can validate submissions and lock the day. Team leads report to them.</td>
+          </tr>
+          <tr>
+            <td>Karthik (TMS team lead)</td>
+            <td><code>karthik@portfolio.local</code><br><code>password123</code></td>
+            <td><span class="pill">team_lead</span></td>
+            <td>TMS only. Members report to them; they report to the manager.</td>
+          </tr>
+          <tr>
+            <td>Sheelan Mam (SCALE)</td>
+            <td><code>sheelan@portfolio.local</code><br><code>password123</code></td>
+            <td><span class="pill">vice_manager</span></td>
+            <td>SCALE only. Reports to the manager.</td>
+          </tr>
+          <tr>
+            <td>A team member, e.g. Sasikumar</td>
+            <td><code>sasikumar@portfolio.local</code><br><code>password123</code></td>
+            <td><span class="pill">member</span></td>
+            <td>Own organisation. Submits values for KPIs they own. Cannot see other orgs.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="note">There is no <code>/owner</code> or <code>/portfolio</code> route yet. The difference is what the API returns after the same login page.</p>
+    </div>
+  </section>
+
+  <section id="day">
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Member submits a number</h3>
+          <p>Example: Sasikumar posts <code>sai.mentor_sessions = 3</code> for today. API writes a submission in state <code>submitted</code>. Channel is <code>web</code> or later <code>whatsapp</code>.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Lead accepts or rejects</h3>
+          <p>Nagaraj does not overwrite the number. Accept moves it to <code>validated</code>. Reject sends it back with a reason.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Lead signs off the day</h3>
+          <p><code>POST /orgs/sai/signoff</code> locks validated rows for that date. After lock, a correction is an amendment, not an edit.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Scores appear</h3>
+          <p>If the KPI has a target and thresholds: green, amber, or red. If the target is still empty (50 of 61 at seed): <strong>unscored</strong>. The dashboard is meant to show readiness, not a fake green.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Go-live for one organisation</h3>
+          <p>No unnamed people, every KPI has a target or is marked unmeasured by Thyagu, and one full day has been locked. SAI is the pilot because both people are already named.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note">Deadlines in the spec (Asia/Kolkata): members 17:00, team lead / vice manager 18:00, managers 19:00. The running app stores the data; the clock nudges are not sending yet.</p>
+  </section>
+
+  <section id="wa">
+    <div class="steps">
+      <div class="step">
+        <div>
+          <h3>Message arrives</h3>
+          <p>Gateway normalises the phone to E.164 and looks up <code>users.phone_e164</code>. No match: one reply, “not registered”, and stop. Seed data has no phone numbers yet, so this path is closed until numbers are collected.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Agent is chosen before the model runs</h3>
+          <p>Owner → <code>portfolio-owner-agent</code>. Everyone else → <code>portfolio-reporter-agent</code>. A morning digest uses <code>portfolio-digest-agent</code> (read only).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>adk_new calls the API</h3>
+          <p>Typical owner question “readiness” calls <code>get_readiness</code>. “kpi sai.incubated” calls <code>get_kpi</code>. Writes such as changing a target return a preview and need a second confirm. That check is in the API, not only in the prompt.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div>
+          <h3>Reply is queued</h3>
+          <p>Text goes into <code>wa_outbox</code>. The gateway drains the queue. In the current run it uses a stub sender, so nothing leaves the machine.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="now">
+    <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+      <article class="card">
+        <div class="tag">Open these</div>
+        <h3>Running locally</h3>
+        <ul>
+          <li>Dashboard — http://localhost:3001</li>
+          <li>API health — http://localhost:4001/health</li>
+          <li>Agent runner — http://localhost:3940/health</li>
+          <li>WA gateway — http://localhost:3938/health</li>
+        </ul>
+      </article>
+      <article class="card">
+        <div class="tag">Not built yet</div>
+        <h3>Spec, later phases</h3>
+        <ul>
+          <li>Separate portfolio vs organisation pages</li>
+          <li>KPI config screens and profile editor</li>
+          <li>Real Baileys WhatsApp (dedicated number)</li>
+          <li>Daily deadline nudges and morning digest on a phone</li>
+          <li>Names, phones, and the 50 missing KPI targets</li>
+        </ul>
+      </article>
+    </div>
+    <p class="note">Passwords in the seed are development only. Change them before anyone outside this machine uses the app.</p>
+  </section>
+</main>
+<script>
+  const buttons = document.querySelectorAll('nav button');
+  const sections = document.querySelectorAll('main section');
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      buttons.forEach((b) => b.classList.remove('on'));
+      sections.forEach((s) => s.classList.remove('on'));
+      btn.classList.add('on');
+      document.getElementById(btn.dataset.tab).classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

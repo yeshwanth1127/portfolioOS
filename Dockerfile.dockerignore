@@ -1,0 +1,18 @@
+# Context is EXORA/ (see docker-compose.yml). Send only what the Dockerfile copies.
+*
+!sona-ecosystem/package.json
+!sona-ecosystem/package-lock.json
+!sona-ecosystem/packages
+!sona-ecosystem/apps
+!sona-ecosystem/services
+!sona-ecosystem/docs
+!sona-ecosystem/docker
+!qlix-monorepo/adk_new
+!qlix-monorepo/platform/qlix-whatsapp-service
+**/node_modules
+**/.next
+**/.venv*
+**/__pycache__
+**/.git
+**/auth_info
+**/*.log

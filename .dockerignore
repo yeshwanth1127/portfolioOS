@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/dist
+**/.git
+**/*.md
+!docs/DOCKER.md
+.env
+.env.*
+!.env.docker.example
+apps/web/.next
+**/.venv*
+**/auth_info
+**/coverage
+**/*.log

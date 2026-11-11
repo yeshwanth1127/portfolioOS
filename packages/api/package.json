@@ -1,0 +1,19 @@
+{
+  "name": "@portfolio-os/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --watch src/index.js",
+    "start": "node --env-file=../../.env src/index.js",
+    "test:pilot": "node scripts/pilot-sai.js",
+    "test:agent-tools": "node scripts/agent-tools-smoke.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4"
+  }
+}

@@ -1,0 +1,12 @@
+# Server deploy: join the Qlix stack's network so PortfolioOS reaches backend-adk directly.
+#   docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build
+services:
+  portfolio:
+    environment:
+      QLIX_BACKEND_URL: ${QLIX_BACKEND_URL:-http://backend:4000}
+    networks: [default, qlix]
+
+networks:
+  qlix:
+    external: true
+    name: ${QLIX_NETWORK:-qlix-monorepo_default}

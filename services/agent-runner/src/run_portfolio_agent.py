@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+"""Run one PortfolioOS turn through adk_new AgentRunRunner."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+adk_path = Path(os.environ.get("QLIX_ADK_PATH", "")).resolve()
+if str(adk_path) not in sys.path and adk_path.exists():
+    sys.path.insert(0, str(adk_path))
+
+from adk_new.capabilities.shared.portfolio_os.portfolio_os_turn import run_portfolio_turn  # noqa: E402
+
+
+def main() -> None:
+    payload = json.loads(os.environ["PORTFOLIO_RUN_JSON"])
+    result = run_portfolio_turn(
+        api_url=os.environ.get("PORTFOLIOOS_API_URL", "http://localhost:4001"),
+        run_token=payload["run_token"],
+        membership=payload["membership"],
+        agent_id=payload["agent_id"],
+        message=payload.get("message") or "",
+        history=payload.get("history") or [],
+        qlix_backend_url=payload.get("qlix_backend_url") or "",
+        qlix_agent_id=payload.get("qlix_agent_id") or "",
+        qlix_runner_token=payload.get("qlix_runner_token") or "",
+        focus_org_slug=payload.get("focus_org_slug") or "",
+    )
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    main()

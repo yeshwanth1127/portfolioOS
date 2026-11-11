@@ -1,0 +1,62 @@
+# One-command PortfolioOS stack.
+# From sona-ecosystem/:  docker compose up --build
+#
+# Runs Postgres + one app container (API, web, agent-runner, WA gateway, WhatsApp sidecar).
+# Qlix inference (backend-adk :4000) stays on the host or another compose — set QLIX_* below.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: portfolio
+      POSTGRES_DB: portfolio_os
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - portfolio_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfolio -d portfolio_os"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  portfolio:
+    build:
+      context: ..
+      dockerfile: sona-ecosystem/Dockerfile
+    ports:
+      - "${WEB_PORT:-3001}:3001"   # web (the only public port; API is served at /papi)
+      - "127.0.0.1:4001:4001"     # API, agent-runner, WhatsApp: local only
+      - "127.0.0.1:3938:3938"
+      - "127.0.0.1:3939:3939"
+      - "127.0.0.1:3940:3940"
+    environment:
+      DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio_os
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      AGENT_RUNNER_SECRET: ${AGENT_RUNNER_SECRET:?set AGENT_RUNNER_SECRET in .env}
+      AGENT_RUNNER_URL: http://127.0.0.1:3940
+      PORTFOLIOOS_API_URL: http://127.0.0.1:4001
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      # Reach Qlix on the host machine (Mac/Windows Docker Desktop).
+      QLIX_BACKEND_URL: ${QLIX_BACKEND_URL:-http://host.docker.internal:4000}
+      QLIX_AGENT_ID: ${QLIX_AGENT_ID:-}
+      QLIX_RUNNER_TOKEN: ${QLIX_RUNNER_TOKEN:-}
+      WA_CONNECTOR_ID: ${WA_CONNECTOR_ID:-}
+      WA_SERVICE_SECRET: ${WA_SERVICE_SECRET:?set WA_SERVICE_SECRET in .env}
+      SERVICE_SECRET: ${WA_SERVICE_SECRET:?set WA_SERVICE_SECRET in .env}
+      WHATSAPP_AUTH_ENCRYPTION_KEY: ${WHATSAPP_AUTH_ENCRYPTION_KEY:-}
+      WHATSAPP_SKIP_LOCAL_APPROVALS: "1"
+      SEED_ON_START: ${SEED_ON_START:-1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - wa_auth:/var/lib/qlix-whatsapp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  portfolio_pg:
+  wa_auth:

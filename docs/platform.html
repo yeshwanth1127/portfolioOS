@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PortfolioOS</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171e27; --panel2: #1e2733; --line: #2c3a4a;
+    --text: #e7ecf1; --muted: #93a1b3; --accent: #5eead4; --danger: #f87171; --ok: #86efac;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  button, input, select { font: inherit; color: inherit; }
+  a { color: var(--accent); }
+  .login {
+    min-height: 100vh; display: grid; place-items: center; padding: 24px;
+    background: radial-gradient(900px 400px at 50% -10%, #1a3340, transparent);
+  }
+  .login-card { width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 28px; }
+  .login-card h1 { margin: 0 0 4px; font-size: 1.6rem; font-weight: 650; }
+  .muted { color: var(--muted); }
+  label { display: grid; gap: 6px; font-size: 0.85rem; color: var(--muted); margin-top: 14px; }
+  input {
+    background: #0f1419; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  }
+  .btn {
+    margin-top: 16px; width: 100%; background: #134e4a; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer; font-weight: 600;
+  }
+  .btn:hover { background: #0f766e; }
+  .btn.ghost { width: auto; background: transparent; border: 1px solid var(--line); font-weight: 500; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .chips button { background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 10px; cursor: pointer; font-size: 0.8rem; }
+  .err { color: var(--danger); min-height: 1.2em; font-size: 0.9rem; }
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  aside { border-right: 1px solid var(--line); padding: 18px 14px; background: #121820; }
+  .brand { font-weight: 700; letter-spacing: -0.02em; margin-bottom: 18px; }
+  .navbtn {
+    display: block; width: 100%; text-align: left; background: transparent; border: 0; border-radius: 8px;
+    padding: 8px 10px; cursor: pointer; color: var(--muted); margin-bottom: 4px;
+  }
+  .navbtn.on { background: #1e293b; color: var(--text); }
+  .who { margin-top: 24px; font-size: 0.82rem; color: var(--muted); }
+  main { padding: 22px 26px 40px; }
+  h2 { margin: 0 0 4px; font-weight: 650; }
+  .row { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; cursor: pointer; text-align: left; width: 100%; }
+  .card:hover { border-color: #3d5166; }
+  .card h3 { margin: 0 0 4px; font-size: 1rem; }
+  .bar { height: 6px; background: #0f1419; border-radius: 99px; overflow: hidden; margin-top: 8px; }
+  .bar > span { display: block; height: 100%; background: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .tabs { display: flex; gap: 6px; margin: 12px 0 16px; }
+  .tabs button { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .tabs button.on { background: var(--panel2); border-color: #3d5166; }
+  .pill { font-size: 0.75rem; padding: 2px 8px; border-radius: 99px; background: #243044; color: #7dd3fc; }
+  .pill.warn { background: #3f2d12; color: #fbbf24; }
+  .pill.ok { background: #143024; color: var(--ok); }
+  form.inline { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
+  form.inline label { margin: 0; }
+  form.inline .btn, form.inline .btn.ghost { width: auto; margin: 0; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<div id="login" class="login">
+  <form class="login-card" id="login-form">
+    <h1>PortfolioOS</h1>
+    <p class="muted">Sign in with a seeded account. This page is the product UI, using the same people, organisations and KPIs as the running app.</p>
+    <label>Email <input id="email" autocomplete="username" value="owner@portfolio.local" /></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password" value="password123" /></label>
+    <p class="err" id="err"></p>
+    <button class="btn" type="submit">Sign in</button>
+    <div class="chips" id="chips"></div>
+  </form>
+</div>
+<div id="app" class="app hide">
+  <aside>
+    <div class="brand">PortfolioOS</div>
+    <div id="nav"></div>
+    <div class="who" id="who"></div>
+    <button class="btn ghost" id="logout" type="button" style="margin-top:12px">Sign out</button>
+  </aside>
+  <main id="view"></main>
+</div>
+<script>
+const DATA = {"orgs":[{"slug":"tms","name":"Track My Services","short_name":"TMS","sector":"Operational Technology","descriptor":"Operational Resource Planning platform","positioning":"India's first Operational Resource Planning platform","is_department":false},{"slug":"uatc","name":"Unreal Authorized Training Center","short_name":"Unreal ATC","sector":"Immersive Technology","descriptor":"AR/VR/MR training","positioning":"AR/VR/MR and real-time 3D training","is_department":false},{"slug":"s3dx","name":"Sonastar3Dx","short_name":"Sonastar3Dx","sector":"Engineering Technology","descriptor":"Aerospace, automotive and EV design","positioning":"Aerospace, automotive and EV design","is_department":false},{"slug":"pats","name":"Plantation Automation Tech Solution","short_name":"PATS","sector":"AgriTech","descriptor":"Drone-as-a-Service","positioning":"Precision Farming Made Easy","is_department":false},{"slug":"sai","name":"Sona Accelerator & Incubation Foundation","short_name":"SAI Foundation","sector":"Startup Ecosystem","descriptor":"Incubation and acceleration","positioning":"Build. Validate. Scale.","is_department":false},{"slug":"comms","name":"Communications Department","short_name":"Communications","sector":"Corporate Communications","descriptor":"Centralised branding and promotion","positioning":"Centralised branding, promotion and design","is_department":true},{"slug":"scale","name":"Sona Centre of Advanced Learning & Entrepreneurship","short_name":"SCALE","sector":"Advanced Learning","descriptor":"Industry-led learning and entrepreneurship","positioning":"Designed by the industry, for the industry","is_department":false}],"users":[{"key":"u_owner","full_name":"Thyagu Sir","email":"owner@portfolio.local","password":"password123","is_named":true},{"key":"u_tms_lead","full_name":"Mrs. Indhumathi","email":"indhumathi@portfolio.local","password":"password123","is_named":true},{"key":"u_tms_1","full_name":"Ms. Harini","email":"harini@portfolio.local","password":"password123","is_named":true},{"key":"u_uatc_lead","full_name":"Mr. Raj Kumar","email":"rajkumar@portfolio.local","password":"password123","is_named":true},{"key":"u_uatc_1","full_name":"Associate 1","email":"uatc1@portfolio.local","password":"password123","is_named":false},{"key":"u_uatc_2","full_name":"Associate 2","email":"uatc2@portfolio.local","password":"password123","is_named":false},{"key":"u_uatc_3","full_name":"Associate 3","email":"uatc3@portfolio.local","password":"password123","is_named":false},{"key":"u_uatc_4","full_name":"Associate 4","email":"uatc4@portfolio.local","password":"password123","is_named":false},{"key":"u_s3dx_lead","full_name":"Ventak Raja","email":"ventakraja@portfolio.local","password":"password123","is_named":true},{"key":"u_s3dx_1","full_name":"Associate 1","email":"s3dx1@portfolio.local","password":"password123","is_named":false},{"key":"u_s3dx_2","full_name":"Associate 2","email":"s3dx2@portfolio.local","password":"password123","is_named":false},{"key":"u_s3dx_3","full_name":"Associate 3","email":"s3dx3@portfolio.local","password":"password123","is_named":false},{"key":"u_pats_lead","full_name":"Anju Raj","email":"anjuraj@portfolio.local","password":"password123","is_named":true},{"key":"u_pats_1","full_name":"Drone Pilot 1","email":"pats1@portfolio.local","password":"password123","is_named":false},{"key":"u_pats_2","full_name":"Drone Pilot 2","email":"pats2@portfolio.local","password":"password123","is_named":false},{"key":"u_pats_3","full_name":"Drone Pilot 3","email":"pats3@portfolio.local","password":"password123","is_named":false},{"key":"u_pats_4","full_name":"Drone Pilot 4","email":"pats4@portfolio.local","password":"password123","is_named":false},{"key":"u_sai_lead","full_name":"Nagaraj","email":"nagaraj@portfolio.local","password":"password123","is_named":true},{"key":"u_sai_1","full_name":"Sasikumar","email":"sasikumar@portfolio.local","password":"password123","is_named":true},{"key":"u_comms_lead","full_name":"Abhinav","email":"abhinav@portfolio.local","password":"password123","is_named":true},{"key":"u_comms_s1","full_name":"Senior Team Member 1","email":"comms_s1@portfolio.local","password":"password123","is_named":false},{"key":"u_comms_s2","full_name":"Senior Team Member 2","email":"comms_s2@portfolio.local","password":"password123","is_named":false},{"key":"u_comms_s3","full_name":"Senior Team Member 3","email":"comms_s3@portfolio.local","password":"password123","is_named":false},{"key":"u_comms_1","full_name":"Associate 1","email":"comms1@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_lead","full_name":"Venugopal","email":"venugopal@portfolio.local","password":"password123","is_named":true},{"key":"u_scale_vl","full_name":"Sheelan Mam","email":"sheelan@portfolio.local","password":"password123","is_named":true},{"key":"u_scale_1","full_name":"Associate 1","email":"scale1@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_2","full_name":"Associate 2","email":"scale2@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_3","full_name":"Associate 3","email":"scale3@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_4","full_name":"Associate 4","email":"scale4@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_5","full_name":"Associate 5","email":"scale5@portfolio.local","password":"password123","is_named":false},{"key":"u_scale_6","full_name":"Associate 6","email":"scale6@portfolio.local","password":"password123","is_named":false}],"memberships":[{"key":"m_owner","userKey":"u_owner","orgSlug":null,"role":"owner","title":"Portfolio Owner","parentKey":null,"state":"active"},{"key":"m_tms_lead","userKey":"u_tms_lead","orgSlug":"tms","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_tms_1","userKey":"u_tms_1","orgSlug":"tms","role":"member","title":"Associate","parentKey":"m_tms_lead","state":"active"},{"key":"m_uatc_lead","userKey":"u_uatc_lead","orgSlug":"uatc","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_uatc_1","userKey":"u_uatc_1","orgSlug":"uatc","role":"member","title":"Associate","parentKey":"m_uatc_lead","state":"pending_name"},{"key":"m_uatc_2","userKey":"u_uatc_2","orgSlug":"uatc","role":"member","title":"Associate","parentKey":"m_uatc_lead","state":"pending_name"},{"key":"m_uatc_3","userKey":"u_uatc_3","orgSlug":"uatc","role":"member","title":"Associate","parentKey":"m_uatc_lead","state":"pending_name"},{"key":"m_uatc_4","userKey":"u_uatc_4","orgSlug":"uatc","role":"member","title":"Associate","parentKey":"m_uatc_lead","state":"pending_name"},{"key":"m_s3dx_lead","userKey":"u_s3dx_lead","orgSlug":"s3dx","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_s3dx_1","userKey":"u_s3dx_1","orgSlug":"s3dx","role":"member","title":"Associate","parentKey":"m_s3dx_lead","state":"pending_name"},{"key":"m_s3dx_2","userKey":"u_s3dx_2","orgSlug":"s3dx","role":"member","title":"Associate","parentKey":"m_s3dx_lead","state":"pending_name"},{"key":"m_s3dx_3","userKey":"u_s3dx_3","orgSlug":"s3dx","role":"member","title":"Associate","parentKey":"m_s3dx_lead","state":"pending_name"},{"key":"m_pats_lead","userKey":"u_pats_lead","orgSlug":"pats","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_pats_1","userKey":"u_pats_1","orgSlug":"pats","role":"member","title":"Drone Pilot","parentKey":"m_pats_lead","state":"pending_name"},{"key":"m_pats_2","userKey":"u_pats_2","orgSlug":"pats","role":"member","title":"Drone Pilot","parentKey":"m_pats_lead","state":"pending_name"},{"key":"m_pats_3","userKey":"u_pats_3","orgSlug":"pats","role":"member","title":"Drone Pilot","parentKey":"m_pats_lead","state":"pending_name"},{"key":"m_pats_4","userKey":"u_pats_4","orgSlug":"pats","role":"member","title":"Drone Pilot","parentKey":"m_pats_lead","state":"pending_name"},{"key":"m_sai_lead","userKey":"u_sai_lead","orgSlug":"sai","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_sai_1","userKey":"u_sai_1","orgSlug":"sai","role":"member","title":"Associate","parentKey":"m_sai_lead","state":"active"},{"key":"m_comms_lead","userKey":"u_comms_lead","orgSlug":"comms","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_comms_s1","userKey":"u_comms_s1","orgSlug":"comms","role":"member","title":"Senior","parentKey":"m_comms_lead","state":"pending_name"},{"key":"m_comms_s2","userKey":"u_comms_s2","orgSlug":"comms","role":"member","title":"Senior","parentKey":"m_comms_lead","state":"pending_name"},{"key":"m_comms_s3","userKey":"u_comms_s3","orgSlug":"comms","role":"member","title":"Senior","parentKey":"m_comms_lead","state":"pending_name"},{"key":"m_comms_1","userKey":"u_comms_1","orgSlug":"comms","role":"member","title":"Associate","parentKey":"m_comms_lead","state":"pending_name"},{"key":"m_scale_lead","userKey":"u_scale_lead","orgSlug":"scale","role":"manager","title":"Manager","parentKey":"m_owner","state":"active"},{"key":"m_scale_vl","userKey":"u_scale_vl","orgSlug":"scale","role":"vice_manager","title":"Vice manager","parentKey":"m_scale_lead","state":"active"},{"key":"m_scale_1","userKey":"u_scale_1","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"},{"key":"m_scale_2","userKey":"u_scale_2","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"},{"key":"m_scale_3","userKey":"u_scale_3","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"},{"key":"m_scale_4","userKey":"u_scale_4","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"},{"key":"m_scale_5","userKey":"u_scale_5","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"},{"key":"m_scale_6","userKey":"u_scale_6","orgSlug":"scale","role":"member","title":"Associate","parentKey":"m_scale_vl","state":"pending_name"}],"kpis":[{"code":"tms.complaints","name":"Complaints logged and closed","unit":"count","owned_at_level":"member","ownerKey":"m_tms_1","cadence":"daily","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.complaints.","for_org_id":null},{"code":"tms.qr_tagged","name":"Assets QR-tagged","unit":"count","owned_at_level":"member","ownerKey":"m_tms_1","cadence":"daily","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.qr_tagged.","for_org_id":null},{"code":"tms.resolution_hrs","name":"Complaint resolution hours","unit":"hours","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"daily","direction":"lower_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.resolution_hrs.","for_org_id":null},{"code":"tms.esc_breach","name":"Escalation breaches","unit":"count","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"daily","direction":"lower_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.esc_breach.","for_org_id":null},{"code":"tms.clients","name":"Active institutional clients","unit":"count","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.clients.","for_org_id":null},{"code":"tms.impl","name":"Implementations in progress","unit":"count","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.impl.","for_org_id":null},{"code":"tms.amc","name":"AMC renewals","unit":"count","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.amc.","for_org_id":null},{"code":"tms.revenue","name":"Revenue (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_tms_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for tms.revenue.","for_org_id":null},{"code":"uatc.certified","name":"Learners certified","unit":"count","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for uatc.certified.","for_org_id":null},{"code":"uatc.batches","name":"Training batches run","unit":"count","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for uatc.batches.","for_org_id":null},{"code":"uatc.session_hrs","name":"Training session hours","unit":"hours","owned_at_level":"member","ownerKey":"m_uatc_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for uatc.session_hrs.","for_org_id":null},{"code":"uatc.utilisation","name":"Lab utilisation","unit":"%","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for uatc.utilisation.","for_org_id":null},{"code":"uatc.corporate","name":"Corporate training programmes","unit":"count","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for uatc.corporate.","for_org_id":null},{"code":"uatc.fdp","name":"Faculty development programmes","unit":"count","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for uatc.fdp.","for_org_id":null},{"code":"uatc.project_value","name":"Custom AR/VR project value (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for uatc.project_value.","for_org_id":null},{"code":"uatc.partners","name":"Institutional partners","unit":"count","owned_at_level":"manager","ownerKey":"m_uatc_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for uatc.partners.","for_org_id":null},{"code":"uatc.tasks","name":"Associate task completion","unit":"count","owned_at_level":"member","ownerKey":"m_uatc_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for uatc.tasks.","for_org_id":null},{"code":"s3dx.drawings","name":"Drawings delivered","unit":"count","owned_at_level":"member","ownerKey":"m_s3dx_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for s3dx.drawings.","for_org_id":null},{"code":"s3dx.projects","name":"Active projects","unit":"count","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for s3dx.projects.","for_org_id":null},{"code":"s3dx.on_time","name":"On-time delivery rate","unit":"%","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"latest","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for s3dx.on_time.","for_org_id":null},{"code":"s3dx.first_pass","name":"First-pass quality rate","unit":"%","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"latest","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for s3dx.first_pass.","for_org_id":null},{"code":"s3dx.rework","name":"Rework hours","unit":"hours","owned_at_level":"member","ownerKey":"m_s3dx_1","cadence":"weekly","direction":"lower_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for s3dx.rework.","for_org_id":null},{"code":"s3dx.billable","name":"Billable hours","unit":"hours","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for s3dx.billable.","for_org_id":null},{"code":"s3dx.revenue","name":"Revenue (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for s3dx.revenue.","for_org_id":null},{"code":"s3dx.cad_training","name":"CAD training sessions","unit":"count","owned_at_level":"manager","ownerKey":"m_s3dx_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for s3dx.cad_training.","for_org_id":null},{"code":"pats.acres","name":"Acres sprayed","unit":"acres","owned_at_level":"member","ownerKey":"m_pats_1","cadence":"daily","direction":"higher_is_better","rollup_method":"sum","target":12,"green_at":12,"amber_at":10,"source_tag":"report","rationale":"Report reference 12–16 acres/day; target set at 12.","for_org_id":null},{"code":"pats.completions","name":"Service completions","unit":"count","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"daily","direction":"higher_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for pats.completions.","for_org_id":null},{"code":"pats.collected","name":"Payment collection rate","unit":"%","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"daily","direction":"higher_is_better","rollup_method":"manual","target":100,"green_at":95,"amber_at":85,"source_tag":"report","rationale":"Seeded from portfolio report for pats.collected.","for_org_id":null},{"code":"pats.price_acre","name":"Average price per acre (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"latest","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for pats.price_acre.","for_org_id":null},{"code":"pats.serviceable","name":"Drone serviceability","unit":"%","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"daily","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for pats.serviceable.","for_org_id":null},{"code":"pats.pipeline","name":"Bookings pipeline (acres)","unit":"acres","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for pats.pipeline.","for_org_id":null},{"code":"pats.demos","name":"Village demonstrations held","unit":"count","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for pats.demos.","for_org_id":null},{"code":"pats.contracts","name":"FPO and enterprise contracts","unit":"count","owned_at_level":"manager","ownerKey":"m_pats_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for pats.contracts.","for_org_id":null},{"code":"pats.flight_hrs","name":"Flight hours","unit":"hours","owned_at_level":"member","ownerKey":"m_pats_1","cadence":"daily","direction":"higher_is_better","rollup_method":"sum","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for pats.flight_hrs.","for_org_id":null},{"code":"sai.incubated","name":"Startups incubated","unit":"count","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":40,"green_at":36,"amber_at":28,"source_tag":"report","rationale":"Report goal 40 by 2026; current 14+.","for_org_id":null},{"code":"sai.pipeline","name":"Startups in pipeline","unit":"count","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":4,"green_at":4,"amber_at":2,"source_tag":"report","rationale":"Seeded from portfolio report for sai.pipeline.","for_org_id":null},{"code":"sai.founder_network","name":"Founder network size","unit":"count","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":100,"green_at":90,"amber_at":75,"source_tag":"report","rationale":"Seeded from portfolio report for sai.founder_network.","for_org_id":null},{"code":"sai.power_on_me","name":"Power On Me events","unit":"count","owned_at_level":"member","ownerKey":"m_sai_1","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for sai.power_on_me.","for_org_id":null},{"code":"sai.validation_camps","name":"Idea validation camps","unit":"count","owned_at_level":"member","ownerKey":"m_sai_1","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for sai.validation_camps.","for_org_id":null},{"code":"sai.applications","name":"Grant applications submitted","unit":"count","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for sai.applications.","for_org_id":null},{"code":"sai.funding","name":"Funding secured (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for sai.funding.","for_org_id":null},{"code":"sai.mentor_sessions","name":"Mentor sessions delivered","unit":"count","owned_at_level":"member","ownerKey":"m_sai_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for sai.mentor_sessions.","for_org_id":null},{"code":"sai.funnel","name":"Funnel stage progression","unit":"count","owned_at_level":"manager","ownerKey":"m_sai_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for sai.funnel.","for_org_id":null},{"code":"comms.posts","name":"Social posts published","unit":"count","owned_at_level":"member","ownerKey":"m_comms_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.posts.","for_org_id":"tms"},{"code":"comms.reach","name":"Social reach","unit":"count","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.reach.","for_org_id":null},{"code":"comms.leads","name":"Leads generated","unit":"count","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.leads.","for_org_id":null},{"code":"comms.creatives","name":"Creatives delivered","unit":"count","owned_at_level":"member","ownerKey":"m_comms_s1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.creatives.","for_org_id":null},{"code":"comms.turnaround","name":"Turnaround time (hours)","unit":"hours","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"weekly","direction":"lower_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for comms.turnaround.","for_org_id":null},{"code":"comms.requests","name":"Service requests fulfilled","unit":"count","owned_at_level":"member","ownerKey":"m_comms_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.requests.","for_org_id":null},{"code":"comms.event_effect","name":"Event promotion effectiveness","unit":"count","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.event_effect.","for_org_id":null},{"code":"comms.media","name":"Media mentions","unit":"count","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.media.","for_org_id":null},{"code":"comms.web","name":"Website sessions","unit":"count","owned_at_level":"manager","ownerKey":"m_comms_lead","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for comms.web.","for_org_id":null},{"code":"scale.enrolled","name":"Learners enrolled","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for scale.enrolled.","for_org_id":null},{"code":"scale.sessions","name":"Programme sessions delivered","unit":"count","owned_at_level":"member","ownerKey":"m_scale_1","cadence":"weekly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for scale.sessions.","for_org_id":null},{"code":"scale.programmes","name":"Active programmes","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for scale.programmes.","for_org_id":null},{"code":"scale.placements","name":"Placement conversions","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for scale.placements.","for_org_id":null},{"code":"scale.partnerships","name":"Industry partnerships","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for scale.partnerships.","for_org_id":null},{"code":"scale.corp_innovation","name":"Corporate innovation engagements","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for scale.corp_innovation.","for_org_id":null},{"code":"scale.learners_supported","name":"Learners supported","unit":"count","owned_at_level":"vice_manager","ownerKey":"m_scale_vl","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"derived","rationale":"Seeded from portfolio report for scale.learners_supported.","for_org_id":null},{"code":"scale.cross_portfolio","name":"Cross-portfolio programmes","unit":"count","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"quarterly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"report","rationale":"Seeded from portfolio report for scale.cross_portfolio.","for_org_id":null},{"code":"scale.revenue","name":"Revenue (INR)","unit":"INR","owned_at_level":"manager","ownerKey":"m_scale_lead","cadence":"monthly","direction":"higher_is_better","rollup_method":"manual","target":null,"green_at":null,"amber_at":null,"source_tag":"tbd","rationale":"SCALE revenue model pending Thyagu/Venugopal ruling.","for_org_id":null}]};
+const state = { user: null, membership: null, screen: 'portfolio', org: null, tab: 'overview', submissions: [] };
+
+const byUserKey = Object.fromEntries(DATA.users.map(u => [u.key, u]));
+const orgBySlug = Object.fromEntries(DATA.orgs.map(o => [o.slug, o]));
+
+function membershipsFor(userKey) {
+  return DATA.memberships.filter(m => m.userKey === userKey);
+}
+function primaryMembership(userKey) {
+  const rank = { owner: 0, manager: 1, vice_manager: 2, team_lead: 3, member: 4 };
+  return membershipsFor(userKey).slice().sort((a,b) => rank[a.role] - rank[b.role])[0];
+}
+function peopleIn(slug) {
+  return DATA.memberships.filter(m => m.orgSlug === slug).map(m => ({ ...m, user: byUserKey[m.userKey] }));
+}
+function kpisIn(slug) {
+  return DATA.kpis.filter(k => k.code.startsWith(slug + '.'));
+}
+function readiness(slug) {
+  const people = peopleIn(slug);
+  const named = people.filter(p => p.state !== 'pending_name').length;
+  const kpis = kpisIn(slug);
+  const targeted = kpis.filter(k => k.target != null).length;
+  return { people: people.length, named, kpis: kpis.length, targeted };
+}
+
+const chips = [
+  ['Thyagu Sir', 'owner@portfolio.local', 'password123'],
+  ['Nagaraj · SAI manager', 'nagaraj@portfolio.local', 'password123'],
+  ['Sasikumar · SAI', 'sasikumar@portfolio.local', 'password123'],
+  ['Indhumathi · TMS', 'indhumathi@portfolio.local', 'password123'],
+  ['Karthik · TMS team lead', 'karthik@portfolio.local', 'password123'],
+  ['Venugopal · SCALE', 'venugopal@portfolio.local', 'password123'],
+];
+document.getElementById('chips').innerHTML = chips.map(([label, email, pw]) =>
+  '<button type="button" data-email="'+email+'" data-pw="'+pw+'">'+label+'</button>').join('');
+document.getElementById('chips').onclick = (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  document.getElementById('email').value = b.dataset.email;
+  document.getElementById('password').value = b.dataset.pw;
+};
+
+document.getElementById('login-form').onsubmit = (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const user = DATA.users.find(u => u.email === email && u.password === password);
+  const err = document.getElementById('err');
+  if (!user) { err.textContent = 'Invalid credentials'; return; }
+  err.textContent = '';
+  state.user = user;
+  state.membership = primaryMembership(user.key);
+  state.org = state.membership.orgSlug;
+  state.screen = state.membership.role === 'owner' ? 'portfolio' : 'org';
+  state.tab = state.membership.role === 'member' ? 'today' : 'overview';
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+  render();
+};
+document.getElementById('logout').onclick = () => {
+  state.user = null;
+  document.getElementById('app').classList.add('hide');
+  document.getElementById('login').classList.remove('hide');
+};
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+function renderNav() {
+  const role = state.membership.role;
+  const items = [];
+  if (role === 'owner') items.push(['portfolio', 'Portfolio']);
+  if (role === 'owner' && state.org) items.push(['org', orgBySlug[state.org].short_name]);
+  if (role !== 'owner') items.push(['org', orgBySlug[state.org].short_name]);
+  document.getElementById('nav').innerHTML = items.map(([id, label]) =>
+    '<button class="navbtn'+(state.screen===id?' on':'')+'" data-screen="'+id+'">'+esc(label)+'</button>').join('');
+  document.getElementById('nav').onclick = (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    state.screen = b.dataset.screen;
+    render();
+  };
+  const orgLabel = state.membership.orgSlug ? ' · ' + state.membership.orgSlug : ' · portfolio';
+  document.getElementById('who').innerHTML = '<strong>'+esc(state.user.full_name)+'</strong><br>'+esc(state.membership.role)+esc(orgLabel);
+}
+
+function portfolioView() {
+  const cards = DATA.orgs.map(o => {
+    const r = readiness(o.slug);
+    const namedPct = Math.round(100 * r.named / r.people);
+    const tgtPct = Math.round(100 * r.targeted / r.kpis);
+    return '<button class="card" data-org="'+o.slug+'"><h3>'+esc(o.short_name)+'</h3><div class="muted">'+esc(o.sector)+'</div><p class="muted" style="margin:8px 0 0">'+esc(o.positioning)+'</p><div class="muted" style="margin-top:10px;font-size:0.8rem">Roster named '+r.named+'/'+r.people+'</div><div class="bar"><span style="width:'+namedPct+'%"></span></div><div class="muted" style="margin-top:8px;font-size:0.8rem">KPI targets '+r.targeted+'/'+r.kpis+'</div><div class="bar"><span style="width:'+tgtPct+'%"></span></div></button>';
+  }).join('');
+  const unnamed = DATA.memberships.filter(m => m.state === 'pending_name');
+  const missing = DATA.kpis.filter(k => k.target == null);
+  return '<div class="row"><div><h2>Portfolio</h2><p class="muted">Seven organisations. Readiness first — most KPIs have no target yet, so nothing is shown as green.</p></div></div><div class="cards">'+cards+'</div><h2 style="margin-top:28px">Data readiness</h2><p class="muted">'+unnamed.length+' people still unnamed. '+missing.length+' of '+DATA.kpis.length+' KPIs have no target. SAI is the only organisation with a fully named roster.</p>';
+}
+
+function orgView() {
+  const o = orgBySlug[state.org];
+  const r = readiness(o.slug);
+  const tabs = [['overview','Overview'],['kpis','KPIs'],['team','Team'],['today','Today']];
+  const tabBar = '<div class="tabs">'+tabs.map(([id,label]) => '<button type="button" data-tab="'+id+'" class="'+(state.tab===id?'on':'')+'">'+label+'</button>').join('')+'</div>';
+  return '<div class="row"><div><h2>'+esc(o.name)+'</h2><p class="muted">'+esc(o.descriptor)+' · '+esc(o.positioning)+'</p></div><span class="pill'+(r.named===r.people?' ok':' warn')+'">'+(r.named===r.people?'Roster complete':'Roster incomplete')+'</span></div>'+tabBar+'<div id="tab"></div>';
+}
+
+function overviewHTML() {
+  const o = orgBySlug[state.org];
+  const r = readiness(o.slug);
+  const mine = kpisIn(o.slug);
+  return '<div class="cards"><div class="card" style="cursor:default"><h3>'+mine.length+' KPIs</h3><p class="muted">'+r.targeted+' have a target. The rest stay unscored.</p></div><div class="card" style="cursor:default"><h3>'+r.people+' people</h3><p class="muted">'+r.named+' named. Unnamed memberships block go-live.</p></div><div class="card" style="cursor:default"><h3>'+(o.is_department?'Department':'Organisation')+'</h3><p class="muted">'+esc(o.sector)+'</p></div></div>';
+}
+
+function kpisHTML() {
+  const role = state.membership.role;
+  const rows = kpisIn(state.org).filter(k => {
+    if (role !== 'member') return true;
+    return k.ownerKey === state.membership.key;
+  }).map(k => {
+    const owner = DATA.memberships.find(m => m.key === k.ownerKey);
+    const person = owner ? byUserKey[owner.userKey].full_name : '—';
+    const target = k.target == null ? '<span class="pill warn">no target</span>' : esc(k.target)+' '+esc(k.unit);
+    return '<tr><td><code>'+esc(k.code)+'</code><br><span class="muted">'+esc(k.name)+'</span></td><td>'+esc(person)+'</td><td>'+esc(k.how_often||'')+'</td><td>'+target+'</td><td>'+esc(k.source_tag)+'</td></tr>';
+  }).join('');
+  const note = role === 'member' ? '<p class="muted">You only see KPIs assigned to you.</p>' : '';
+  let setter = '';
+  if (state.membership.key === 'm_sai_lead' && state.org === 'sai') {
+    const opts = kpisIn('sai').map(k => '<option value="'+esc(k.code)+'">'+esc(k.code)+'</option>').join('');
+    setter = '<form class="inline" id="target-form"><label>KPI<select id="target-kpi">'+opts+'</select></label><label>Target<input id="target-val" type="number" step="any" required style="width:120px" /></label><button class="btn" type="submit">Set target</button></form><p class="muted">Nagaraj can set SAI targets. Thyagu still sets them for the other organisations.</p>';
+  }
+  return setter+note+'<table><thead><tr><th>KPI</th><th>Owner</th><th>How often</th><th>Target</th><th>Source</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+function teamHTML() {
+  const people = peopleIn(state.org);
+  const rows = people.map(p => '<tr><td>'+esc(p.user.full_name)+'</td><td>'+esc(p.title)+'</td><td>'+esc(p.role)+'</td><td>'+(p.state==='pending_name'?'<span class="pill warn">name pending</span>':'<span class="pill ok">named</span>')+'</td></tr>').join('');
+  return '<table><thead><tr><th>Name</th><th>Title</th><th>Role</th><th>Roster</th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+
+function todayHTML() {
+  const role = state.membership.role;
+  const kpis = kpisIn(state.org).filter(k => role !== 'member' || k.ownerKey === state.membership.key);
+  const subs = state.submissions.filter(s => s.org === state.org);
+  let form = '';
+  if (role === 'member' || role === 'manager' || role === 'vice_manager' || role === 'team_lead') {
+    const opts = kpis.map(k => '<option value="'+esc(k.code)+'">'+esc(k.code)+'</option>').join('');
+    form = '<form class="inline" id="sub-form"><label>KPI<select id="sub-kpi">'+opts+'</select></label><label>Value<input id="sub-val" type="number" step="any" required style="width:120px" /></label><button class="btn" type="submit">Submit</button></form>';
+  }
+  const rows = subs.map(s => {
+    let actions = '<span class="pill">'+esc(s.state)+'</span>';
+    if ((role === 'manager' || role === 'vice_manager' || role === 'team_lead' || role === 'owner') && s.state === 'submitted') {
+      actions = '<button class="btn ghost" data-act="accept" data-id="'+s.id+'">Accept</button> <button class="btn ghost" data-act="reject" data-id="'+s.id+'">Reject</button>';
+    }
+    if (s.state === 'validated' || s.state === 'locked') actions = '<span class="pill ok">'+esc(s.state)+'</span>';
+    if (s.state === 'rejected') actions = '<span class="pill warn">rejected</span>';
+    return '<tr><td><code>'+esc(s.code)+'</code></td><td>'+esc(s.by)+'</td><td>'+esc(s.value)+'</td><td>'+actions+'</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="muted">Nothing submitted for this organisation in this session.</td></tr>';
+  let signoff = '';
+  if (role === 'manager' || role === 'owner') {
+    const locked = subs.some(s => s.state === 'locked');
+    signoff = '<button class="btn" id="signoff" type="button" '+(locked?'disabled':'')+'>'+(locked?'Day locked':'Sign off and lock validated rows')+'</button>';
+  }
+  return form+'<table><thead><tr><th>KPI</th><th>By</th><th>Value</th><th></th></tr></thead><tbody>'+rows+'</tbody></table><div style="margin-top:12px">'+signoff+'</div>';
+}
+
+function bindOrg() {
+  const tab = document.getElementById('tab');
+  if (!tab) return;
+  document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; render(); });
+  if (state.tab === 'overview') tab.innerHTML = overviewHTML();
+  if (state.tab === 'kpis') {
+    tab.innerHTML = kpisHTML();
+    const form = document.getElementById('target-form');
+    if (form) form.onsubmit = (e) => {
+      e.preventDefault();
+      const code = document.getElementById('target-kpi').value;
+      const kpi = DATA.kpis.find(k => k.code === code);
+      if (!kpi) return;
+      const value = Number(document.getElementById('target-val').value);
+      kpi.target = value;
+      kpi.green_at = value;
+      kpi.amber_at = value * 0.8;
+      render();
+    };
+  }
+  if (state.tab === 'team') tab.innerHTML = teamHTML();
+  if (state.tab === 'today') {
+    tab.innerHTML = todayHTML();
+    const form = document.getElementById('sub-form');
+    if (form) form.onsubmit = (e) => {
+      e.preventDefault();
+      state.submissions.push({
+        id: String(Date.now()),
+        org: state.org,
+        code: document.getElementById('sub-kpi').value,
+        value: document.getElementById('sub-val').value,
+        by: state.user.full_name,
+        state: 'submitted'
+      });
+      render();
+    };
+    tab.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b || !b.dataset.act) return;
+      const row = state.submissions.find(s => s.id === b.dataset.id);
+      if (!row) return;
+      row.state = b.dataset.act === 'accept' ? 'validated' : 'rejected';
+      render();
+    };
+    const sign = document.getElementById('signoff');
+    if (sign) sign.onclick = () => {
+      state.submissions.forEach(s => { if (s.org === state.org && s.state === 'validated') s.state = 'locked'; });
+      render();
+    };
+  }
+}
+
+function render() {
+  renderNav();
+  const view = document.getElementById('view');
+  if (state.screen === 'portfolio') {
+    view.innerHTML = portfolioView();
+    view.onclick = (e) => {
+      const card = e.target.closest('[data-org]');
+      if (!card) return;
+      state.org = card.dataset.org;
+      state.screen = 'org';
+      state.tab = 'overview';
+      render();
+    };
+  } else {
+    view.innerHTML = orgView();
+    view.onclick = null;
+    bindOrg();
+  }
+}
+</script>
+</body>
+</html>

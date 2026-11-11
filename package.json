@@ -1,0 +1,24 @@
+{
+  "name": "portfolio-os",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "db:migrate": "npm run migrate -w @portfolio-os/db",
+    "db:seed": "npm run seed -w @portfolio-os/db",
+    "api:dev": "npm run dev -w @portfolio-os/api",
+    "web:dev": "npm run dev -w @portfolio-os/web",
+    "wa:dev": "npm run dev -w @portfolio-os/wa-gateway",
+    "test:pilot": "npm run test:pilot -w @portfolio-os/api",
+    "test:pilot:wa": "node packages/api/scripts/pilot-whatsapp-agent.js",
+    "pilot:full": "bash scripts/run-pilot.sh",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
