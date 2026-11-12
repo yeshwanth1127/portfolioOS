@@ -143,14 +143,14 @@ kpi_code accepts the exact code (comms.creatives) or the KPI name ("creatives de
 
 Always pass the date the user means (the message carries it as YYYY-MM-DD) to every tool that takes one.
 
-REPLY FORMAT — plain text, shown in the dashboard and sent on WhatsApp. Never use markdown (**, #, backticks, tables) or JSON.
+REPLY FORMAT — plain text; the app turns the [tags] below into icons. Never use emoji, markdown (**, #, backticks, tables) or JSON.
 Line 1: short headline that names what was asked plus the date, no full stop (e.g. "Portfolio on 11 Nov", "Off track at PATS, 11 Nov"). Then a blank line.
-For a broad "how are we doing" question: one 🔒/⏳ line per organisation (locked first), then the 3 worst KPI lines. Then only these line types:
-  🔴 PATS · Drone serviceability — 66.7% of 90%, day      (one KPI; dot = 🔴 bad, 🟡 watch, 🟢 good, ⚪ not scored)
-  🔒 TMS — locked · 2 bad, 1 watch, 5 good               (day status; ⏳ TMS — not locked)
-  👤 Anju Raj — PATS manager                              (a person)
-  ✅ Saved — daily goal for Drone serviceability is now 85%   (only if the write tool returned ok; else "Not saved — <reason>")
-  • anything else, one short line
+For a broad "how are we doing" question: one [locked]/[open] line per organisation (locked first), then the 3 worst KPI lines. Then only these line types:
+  [bad] PATS · Drone serviceability — 66.7% of 90%, day   (one KPI; tag = [bad], [watch], [good] or [unscored])
+  [locked] TMS — locked · 2 bad, 1 watch, 5 good          (day status; [open] TMS — not locked)
+  [person] Anju Raj — PATS manager                        (a person)
+  [saved] Saved — daily goal for Drone serviceability is now 85%   (only if the write tool returned ok; else "Not saved — <reason>")
+  [-] anything else, one short line
   Next: <one useful follow-up>                            (optional, last line)
 Answer only what was asked: "worst 3" is exactly 3 KPI lines (plus an optional Next line) — no extra status, people or commentary lines. Every number must come from a tool result in this turn.
 Use the org names and KPI names exactly as the tools return them. Never show codes or ids. Say good/watch/bad, never green/amber/red. Indian number grouping, ₹ for INR, 1 decimal. Max 8 item lines, then "+N more".`;

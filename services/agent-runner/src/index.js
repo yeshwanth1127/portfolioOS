@@ -84,6 +84,34 @@ function pinDates(message) {
     .replace(/\btoday\b(?!\s*\()/gi, (w) => `${w} (${istDate(0)})`);
 }
 
+/* Reply tags from the playbook. The dashboard draws them as icons; WhatsApp gets words. */
+const EMOJI_TO_TAG = [
+  [/🔴/gu, '[bad]'], [/🟡|🟠/gu, '[watch]'], [/🟢/gu, '[good]'], [/⚪/gu, '[unscored]'],
+  [/🔒/gu, '[locked]'], [/⏳|⌛/gu, '[open]'], [/👤/gu, '[person]'], [/✅|✔️?/gu, '[saved]'],
+];
+const ANY_EMOJI = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}]/gu;
+const WHATSAPP_TAG = {
+  bad: 'BAD · ', watch: 'WATCH · ', good: 'GOOD · ', unscored: 'NOT SCORED · ',
+  locked: '', open: '', person: '', saved: '', '-': '- ',
+};
+
+function toTags(text) {
+  let out = String(text ?? '');
+  for (const [re, tag] of EMOJI_TO_TAG) out = out.replace(re, tag);
+  return out
+    .replace(ANY_EMOJI, '')
+    .replace(/^\s*•\s*/gm, '[-] ')
+    .replace(/\[(\S+?)\]\s*/g, '[$1] ')
+    .replace(/[ \t]+$/gm, '');
+}
+
+function formatForChannel(text, channel) {
+  if (channel !== 'whatsapp') return text;
+  return text
+    .replace(/^\[(bad|watch|good|unscored|locked|open|person|saved|-)\]\s*/gim, (_, t) => WHATSAPP_TAG[t.toLowerCase()] ?? '')
+    .replace(/\[(bad|watch|good|unscored|locked|open|person|saved|-)\]\s*/gi, '');
+}
+
 /** Safety net for the playbook's REPLY FORMAT: plain text for both the dashboard and WhatsApp. */
 function cleanReply(text) {
   let out = String(text ?? '').replace(/\r\n/g, '\n').trim();
@@ -102,7 +130,7 @@ function cleanReply(text) {
     .replace(/(^|\s)\*(\S[^*\n]*?)\*(?=\s|$|[.,;:])/g, '$1$2') // *italic*
     .replace(/`([^`\n]+)`/g, '$1')                  // `code`
     .replace(/^#{1,6}\s+/gm, '')                    // # headings
-    .replace(/^\s*[-*]\s+/gm, '• ')                 // - bullets
+    .replace(/^\s*[-*]\s+/gm, '[-] ')               // - bullets
     .replace(/^\s*\|?\s*:?-{3,}.*$/gm, '')          // table separator rows
     .replace(/\*\*/g, '')                           // stray **
     .replace(/[ \t]+$/gm, '')                       // trailing spaces
@@ -165,7 +193,7 @@ app.post('/run', async (req, res) => {
       qlix_runner_token: runnerToken,
     });
     const guarded = guardUnbackedClaims(result, message);
-    res.json({ ...guarded, reply: cleanReply(guarded.reply) });
+    res.json({ ...guarded, reply: formatForChannel(toTags(cleanReply(guarded.reply)), channel ?? 'whatsapp') });
   } catch (e) {
     console.error('[runner] agent turn failed:', e.message);
     res.status(500).json({ error: 'The assistant could not answer just now. Please try again in a moment.' });

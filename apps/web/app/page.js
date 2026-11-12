@@ -1214,53 +1214,92 @@ function PortfolioApp() {
 const THINK_LABELS = ['', 'Reading your question', 'Calling portfolio tools', 'Writing the answer'];
 
 /* ---- Agent reply rendering ------------------------------------------------------------
-   The playbook asks the agent for plain lines (same text goes to WhatsApp):
-     headline · "🔴 PATS · Drone serviceability — 66.7% of 90%, day" · "🔒 TMS" · "Next: …"
-   This turns those lines into colour-coded rows. Anything else renders as plain text. */
-const RAG_DOTS = {
-  '🟢': { tone: 'good', label: 'Good' },
-  '🟡': { tone: 'watch', label: 'Watch' },
-  '🔴': { tone: 'bad', label: 'Bad' },
-  '⚪': { tone: 'none', label: 'Not scored' },
+   The playbook asks the agent for plain lines with [tags]; the runner keeps the tags for the
+   dashboard and swaps them for words on WhatsApp:
+     headline · "[bad] PATS · Drone serviceability — 66.7% of 90%, day" · "[locked] TMS — locked · 2 bad" · "Next: …"
+   Tags become SVG icons here. Older chats saved with emoji are mapped to the same tags. */
+const ICON_PATHS = {
+  bad: <><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5h.01" /></>,
+  watch: <><path d="M10.3 4 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0Z" /><path d="M12 9.5v4M12 17h.01" /></>,
+  good: <><circle cx="12" cy="12" r="9" /><path d="m8.3 12.2 2.5 2.5 5-5.2" /></>,
+  unscored: <circle cx="12" cy="12" r="9" strokeDasharray="3.2 3.2" />,
+  locked: <><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3" /></>,
+  open: <><circle cx="12" cy="12" r="9" /><path d="M12 7.5V12l3 2" /></>,
+  person: <><circle cx="12" cy="8" r="3.8" /><path d="M4.8 20.5a7.2 7.2 0 0 1 14.4 0" /></>,
+  saved: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+  next: <path d="M5 12h13M13 6.5l5.5 5.5-5.5 5.5" />,
+  warn: <><circle cx="12" cy="12" r="9" /><path d="m9 9 6 6M15 9l-6 6" /></>,
+  '-': <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />,
 };
-const ITEM_ICONS = ['🔒', '⏳', '✅', '👤', '•'];
 
-function stripMarkdown(text) {
-  return String(text ?? '')
+function Icon({ name, size = 16, className = '' }) {
+  return (
+    <svg
+      className={`icon ${className}`}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICON_PATHS[name] ?? ICON_PATHS['-']}
+    </svg>
+  );
+}
+
+const RAG_TAGS = {
+  good: { tone: 'good', label: 'Good' },
+  watch: { tone: 'watch', label: 'Watch' },
+  bad: { tone: 'bad', label: 'Bad' },
+  unscored: { tone: 'none', label: 'Not scored' },
+};
+const ITEM_TAGS = ['locked', 'open', 'person', 'saved', '-'];
+const LEGACY_EMOJI = [
+  [/🔴/gu, '[bad]'], [/🟡|🟠/gu, '[watch]'], [/🟢/gu, '[good]'], [/⚪/gu, '[unscored]'],
+  [/🔒/gu, '[locked]'], [/⏳|⌛/gu, '[open]'], [/👤/gu, '[person]'], [/✅/gu, '[saved]'],
+];
+
+function normaliseReply(text) {
+  let out = String(text ?? '')
     .replace(/```[a-z]*\n?|```/gi, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/__(.+?)__/g, '$1')
     .replace(/`([^`\n]+)`/g, '$1')
     .replace(/^#{1,6}\s+/gm, '')
-    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/^\s*[-*•]\s+/gm, '[-] ')
     .replace(/\*\*/g, '');
+  for (const [re, tag] of LEGACY_EMOJI) out = out.replace(re, tag);
+  return out.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '');
 }
 
 function parseReply(text) {
-  const lines = stripMarkdown(text).split('\n').map((l) => l.trim());
+  const lines = normaliseReply(text).split('\n').map((l) => l.trim());
   const blocks = [];
   let headlineTaken = false;
-  for (const line of lines) {
-    if (!line) continue;
-    const dot = Object.keys(RAG_DOTS).find((d) => line.startsWith(d));
-    if (dot) {
-      const body = line.slice(dot.length).trim();
-      const [left, right = ''] = body.split(/\s+[—–-]\s+/, 2);
+  for (const raw of lines) {
+    if (!raw) continue;
+    const tagMatch = /^\[([a-z-]+)\]\s*/i.exec(raw);
+    const tag = tagMatch?.[1].toLowerCase();
+    const line = tagMatch ? raw.slice(tagMatch[0].length) : raw;
+    if (tag && RAG_TAGS[tag]) {
+      const [left, right = ''] = line.split(/\s+[—–-]\s+/, 2);
       const [org, name] = left.includes(' · ') ? left.split(' · ', 2) : ['', left];
       const cut = right.lastIndexOf(', ');
       const value = cut > 0 ? right.slice(0, cut) : right;
       const cadence = cut > 0 ? right.slice(cut + 2) : '';
-      blocks.push({ kind: 'kpi', ...RAG_DOTS[dot], org, name, value, cadence });
-    } else if (ITEM_ICONS.some((i) => line.startsWith(i))) {
-      const icon = ITEM_ICONS.find((i) => line.startsWith(i));
-      const text = line.slice(icon.length).trim();
-      const status = /^(.+?)\s+[—–-]\s+(locked|not locked)\b\s*(?:·\s*(.*))?$/i.exec(text);
-      if ((icon === '🔒' || icon === '⏳') && status) {
+      blocks.push({ kind: 'kpi', tag, ...RAG_TAGS[tag], org, name, value, cadence });
+    } else if (tag && ITEM_TAGS.includes(tag)) {
+      const status = /^(.+?)\s+[—–-]\s+(locked|not locked)\b\s*(?:·\s*(.*))?$/i.exec(line);
+      if ((tag === 'locked' || tag === 'open') && status) {
         const counts = {};
         for (const m of (status[3] ?? '').matchAll(/(\d+)\s+(bad|watch|good)/gi)) counts[m[2].toLowerCase()] = Number(m[1]);
         blocks.push({ kind: 'status', org: status[1], locked: /^locked$/i.test(status[2]), counts });
       } else {
-        blocks.push({ kind: 'item', icon, text });
+        blocks.push({ kind: 'item', tag, text: line });
       }
     } else if (/^next:/i.test(line)) {
       blocks.push({ kind: 'next', text: line.replace(/^next:\s*/i, '') });
@@ -1280,6 +1319,15 @@ function parseReply(text) {
   return blocks;
 }
 
+function Tally({ tone, n }) {
+  return (
+    <span className={`tally tally-${tone}`}>
+      <Icon name={tone} size={12} />
+      {n} {tone}
+    </span>
+  );
+}
+
 function AgentReply({ text }) {
   const blocks = parseReply(text);
   const kpis = blocks.filter((b) => b.kind === 'kpi');
@@ -1293,9 +1341,7 @@ function AgentReply({ text }) {
               <span>{b.text}</span>
               {kpis.length >= 2 && (
                 <span className="reply-tally">
-                  {counts.filter(([, n]) => n > 0).map(([tone, n]) => (
-                    <span key={tone} className={`tally tally-${tone}`}>{n} {RAG_DOTS[Object.keys(RAG_DOTS).find((d) => RAG_DOTS[d].tone === tone)].label.toLowerCase()}</span>
-                  ))}
+                  {counts.filter(([, n]) => n > 0).map(([tone, n]) => <Tally key={tone} tone={tone} n={n} />)}
                 </span>
               )}
             </div>
@@ -1304,12 +1350,10 @@ function AgentReply({ text }) {
         if (b.kind === 'kpi') {
           return (
             <div key={i} className={`reply-kpi tone-${b.tone}`}>
-              <span className="reply-pill">{b.label}</span>
+              <span className="reply-kpi-icon"><Icon name={b.tag} size={18} /></span>
               <span className="reply-kpi-main">
                 <span className="reply-kpi-name">{b.name}</span>
-                {(b.org || b.cadence) && (
-                  <span className="reply-kpi-sub">{[b.org, b.cadence].filter(Boolean).join(' · ')}</span>
-                )}
+                <span className="reply-kpi-sub">{[b.label, b.org, b.cadence].filter(Boolean).join(' · ')}</span>
               </span>
               {b.value && <span className="reply-kpi-value">{b.value}</span>}
             </div>
@@ -1319,28 +1363,43 @@ function AgentReply({ text }) {
           const shown = ['bad', 'watch', 'good'].filter((t) => b.counts[t] > 0);
           return (
             <div key={i} className={`reply-status${b.locked ? '' : ' is-open'}`}>
-              <span className="reply-status-org">{b.org}</span>
+              <span className="reply-status-org">
+                <Icon name={b.locked ? 'locked' : 'open'} size={15} className="reply-status-icon" />
+                {b.org}
+              </span>
               <span className="reply-status-counts">
-                {shown.map((t) => (
-                  <span key={t} className={`tally tally-${t}`}>{b.counts[t]} {t}</span>
-                ))}
-                <span className="reply-status-lock">{b.locked ? '🔒 Locked' : '⏳ Not locked'}</span>
+                {shown.map((t) => <Tally key={t} tone={t} n={b.counts[t]} />)}
+                {!b.locked && <span className="reply-status-lock">Not locked</span>}
               </span>
             </div>
           );
         }
         if (b.kind === 'item') {
           return (
-            <div key={i} className={`reply-item${b.icon === '✅' ? ' is-done' : ''}`}>
-              <span className="reply-item-icon" aria-hidden>{b.icon === '•' ? '' : b.icon}</span>
+            <div key={i} className={`reply-item${b.tag === 'saved' ? ' is-done' : ''}`}>
+              <Icon name={b.tag} size={15} className="reply-item-icon" />
               <span>{b.text}</span>
             </div>
           );
         }
         if (b.kind === 'section') return <div key={i} className="reply-section">{b.text}</div>;
-        if (b.kind === 'next') return <div key={i} className="reply-next"><b>Next</b> {b.text}</div>;
+        if (b.kind === 'next') {
+          return (
+            <div key={i} className="reply-next">
+              <Icon name="next" size={14} className="reply-next-icon" />
+              <span>{b.text}</span>
+            </div>
+          );
+        }
         if (b.kind === 'more') return <div key={i} className="reply-more">{b.text}</div>;
-        if (b.kind === 'warn') return <div key={i} className="reply-warn">{b.text}</div>;
+        if (b.kind === 'warn') {
+          return (
+            <div key={i} className="reply-warn">
+              <Icon name="warn" size={15} />
+              <span>{b.text}</span>
+            </div>
+          );
+        }
         return <p key={i} className="reply-text">{b.text}</p>;
       })}
     </div>
@@ -1509,7 +1568,7 @@ function AgentChatPanel({
                 <ul className="tool-calls" aria-label="Tools used">
                   {[...item.tools.reduce((m, t) => m.set(t, (m.get(t) ?? 0) + 1), new Map())].map(([tool, n], ti) => (
                     <li key={tool} className="tool-call done" style={{ animationDelay: `${ti * 80}ms` }}>
-                      <span className="tool-call-icon" aria-hidden>✓</span>
+                      <span className="tool-call-icon"><Icon name="saved" size={12} /></span>
                       <span>{TOOL_LABELS[tool] ?? tool}{n > 1 ? ` ×${n}` : ''}</span>
                     </li>
                   ))}
