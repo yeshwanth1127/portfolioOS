@@ -44,7 +44,8 @@ fi
 
 # --- Processes (all watched) ----------------------------------------------------
 if up 4000; then echo "[qlix] backend-adk already on :4000 — reusing"
-else (cd "$QLIX" && npm run dev 2>&1 | tag qlix) & fi
+# Clean env: our .env exports PORT/DATABASE_URL/JWT_SECRET/… which would override backend-adk/.env
+else (cd "$QLIX" && env -i HOME="$HOME" PATH="$PATH" TERM="${TERM:-xterm}" PORT=4000 npm run dev 2>&1 | tag qlix) & fi
 
 node --watch packages/api/src/index.js 2>&1 | tag api &
 AGENT_RUNNER_PORT=3940 node --watch services/agent-runner/src/index.js 2>&1 | tag runner &
