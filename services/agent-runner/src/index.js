@@ -73,9 +73,50 @@ function runAdkPortfolioAgent(payload) {
 const READ_PREFIXES = ['list_', 'show_', 'check_', 'who_', 'find_'];
 const CLAIM = /\b(has|have) been (successfully )?(set|updated|recorded|added|changed|locked|assigned|removed|validated|retired|saved)\b|\bsuccessfully (set|updated|recorded|added|changed|locked|assigned|removed|validated|saved)\b/i;
 
-/** If the reply claims a change but no write tool succeeded this turn, say so instead of misleading the user. */
-function guardUnbackedClaims(result) {
+function istDate(offsetDays = 0) {
+  return new Date(Date.now() + 330 * 60 * 1000 + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
+/** Pin relative days to ISO dates so the model passes the right `date` to every tool. */
+function pinDates(message) {
+  return String(message ?? '')
+    .replace(/\byesterday\b(?!\s*\()/gi, (w) => `${w} (${istDate(-1)})`)
+    .replace(/\btoday\b(?!\s*\()/gi, (w) => `${w} (${istDate(0)})`);
+}
+
+/** Safety net for the playbook's REPLY FORMAT: plain text for both the dashboard and WhatsApp. */
+function cleanReply(text) {
+  let out = String(text ?? '').replace(/\r\n/g, '\n').trim();
+  if (/^[\[{]/.test(out)) {
+    try {
+      JSON.parse(out);
+      return 'I found the data but could not summarise it. Please ask again.';
+    } catch {
+      /* not JSON — keep going */
+    }
+  }
+  out = out
+    .replace(/```[a-z]*\n?|```/gi, '')            // code fences
+    .replace(/\*\*(.+?)\*\*/g, '$1')                // **bold**
+    .replace(/__(.+?)__/g, '$1')                    // __bold__
+    .replace(/(^|\s)\*(\S[^*\n]*?)\*(?=\s|$|[.,;:])/g, '$1$2') // *italic*
+    .replace(/`([^`\n]+)`/g, '$1')                  // `code`
+    .replace(/^#{1,6}\s+/gm, '')                    // # headings
+    .replace(/^\s*[-*]\s+/gm, '• ')                 // - bullets
+    .replace(/^\s*\|?\s*:?-{3,}.*$/gm, '')          // table separator rows
+    .replace(/\*\*/g, '')                           // stray **
+    .replace(/[ \t]+$/gm, '')                       // trailing spaces
+    .replace(/\n{3,}/g, '\n\n');
+  return out.trim();
+}
+
+const WRITE_INTENT = /\b(set|update|record|add|change|lock|assign|remove|validate|approve|reject|retire|save|amend|withdraw|submit|enter|log)\b/i;
+
+/** If the user asked for a change, the reply claims one, but no write tool succeeded this turn, say so instead of misleading the user. */
+function guardUnbackedClaims(result, message) {
   const reply = String(result?.reply ?? '');
+  // Read questions ("who owns X?") often answer "has been assigned to…" — not a claim we made.
+  if (!WRITE_INTENT.test(String(message ?? ''))) return result;
   if (!CLAIM.test(reply)) return result;
   const writes = (result.tools ?? []).filter(
     (t) => t?.action && !READ_PREFIXES.some((p) => t.action.startsWith(p)),
@@ -115,7 +156,7 @@ app.post('/run', async (req, res) => {
       run_token: mintData.run_token,
       membership: mintData.membership,
       agent_id,
-      message: message ?? '',
+      message: pinDates(message),
       channel: channel ?? 'whatsapp',
       history: history ?? [],
       focus_org_slug: focus_org_slug ?? '',
@@ -123,9 +164,11 @@ app.post('/run', async (req, res) => {
       qlix_agent_id: agentId,
       qlix_runner_token: runnerToken,
     });
-    res.json(guardUnbackedClaims(result));
+    const guarded = guardUnbackedClaims(result, message);
+    res.json({ ...guarded, reply: cleanReply(guarded.reply) });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('[runner] agent turn failed:', e.message);
+    res.status(500).json({ error: 'The assistant could not answer just now. Please try again in a moment.' });
   }
 });
 

@@ -1213,6 +1213,140 @@ function PortfolioApp() {
 
 const THINK_LABELS = ['', 'Reading your question', 'Calling portfolio tools', 'Writing the answer'];
 
+/* ---- Agent reply rendering ------------------------------------------------------------
+   The playbook asks the agent for plain lines (same text goes to WhatsApp):
+     headline · "🔴 PATS · Drone serviceability — 66.7% of 90%, day" · "🔒 TMS" · "Next: …"
+   This turns those lines into colour-coded rows. Anything else renders as plain text. */
+const RAG_DOTS = {
+  '🟢': { tone: 'good', label: 'Good' },
+  '🟡': { tone: 'watch', label: 'Watch' },
+  '🔴': { tone: 'bad', label: 'Bad' },
+  '⚪': { tone: 'none', label: 'Not scored' },
+};
+const ITEM_ICONS = ['🔒', '⏳', '✅', '👤', '•'];
+
+function stripMarkdown(text) {
+  return String(text ?? '')
+    .replace(/```[a-z]*\n?|```/gi, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\*\*/g, '');
+}
+
+function parseReply(text) {
+  const lines = stripMarkdown(text).split('\n').map((l) => l.trim());
+  const blocks = [];
+  let headlineTaken = false;
+  for (const line of lines) {
+    if (!line) continue;
+    const dot = Object.keys(RAG_DOTS).find((d) => line.startsWith(d));
+    if (dot) {
+      const body = line.slice(dot.length).trim();
+      const [left, right = ''] = body.split(/\s+[—–-]\s+/, 2);
+      const [org, name] = left.includes(' · ') ? left.split(' · ', 2) : ['', left];
+      const cut = right.lastIndexOf(', ');
+      const value = cut > 0 ? right.slice(0, cut) : right;
+      const cadence = cut > 0 ? right.slice(cut + 2) : '';
+      blocks.push({ kind: 'kpi', ...RAG_DOTS[dot], org, name, value, cadence });
+    } else if (ITEM_ICONS.some((i) => line.startsWith(i))) {
+      const icon = ITEM_ICONS.find((i) => line.startsWith(i));
+      const text = line.slice(icon.length).trim();
+      const status = /^(.+?)\s+[—–-]\s+(locked|not locked)\b\s*(?:·\s*(.*))?$/i.exec(text);
+      if ((icon === '🔒' || icon === '⏳') && status) {
+        const counts = {};
+        for (const m of (status[3] ?? '').matchAll(/(\d+)\s+(bad|watch|good)/gi)) counts[m[2].toLowerCase()] = Number(m[1]);
+        blocks.push({ kind: 'status', org: status[1], locked: /^locked$/i.test(status[2]), counts });
+      } else {
+        blocks.push({ kind: 'item', icon, text });
+      }
+    } else if (/^next:/i.test(line)) {
+      blocks.push({ kind: 'next', text: line.replace(/^next:\s*/i, '') });
+    } else if (/^\+\d+ more/i.test(line)) {
+      blocks.push({ kind: 'more', text: line });
+    } else if (/^not saved\b/i.test(line)) {
+      blocks.push({ kind: 'warn', text: line });
+    } else if (!headlineTaken && blocks.length === 0 && line.length <= 70 && !/[?!]$/.test(line)) {
+      blocks.push({ kind: 'headline', text: line.replace(/[:.]$/, '') });
+    } else if (/:$/.test(line) && line.length <= 50) {
+      blocks.push({ kind: 'section', text: line.slice(0, -1) });
+    } else {
+      blocks.push({ kind: 'text', text: line });
+    }
+    headlineTaken = true;
+  }
+  return blocks;
+}
+
+function AgentReply({ text }) {
+  const blocks = parseReply(text);
+  const kpis = blocks.filter((b) => b.kind === 'kpi');
+  const counts = ['bad', 'watch', 'good'].map((tone) => [tone, kpis.filter((k) => k.tone === tone).length]);
+  return (
+    <div className="reply">
+      {blocks.map((b, i) => {
+        if (b.kind === 'headline') {
+          return (
+            <div key={i} className="reply-head">
+              <span>{b.text}</span>
+              {kpis.length >= 2 && (
+                <span className="reply-tally">
+                  {counts.filter(([, n]) => n > 0).map(([tone, n]) => (
+                    <span key={tone} className={`tally tally-${tone}`}>{n} {RAG_DOTS[Object.keys(RAG_DOTS).find((d) => RAG_DOTS[d].tone === tone)].label.toLowerCase()}</span>
+                  ))}
+                </span>
+              )}
+            </div>
+          );
+        }
+        if (b.kind === 'kpi') {
+          return (
+            <div key={i} className={`reply-kpi tone-${b.tone}`}>
+              <span className="reply-pill">{b.label}</span>
+              <span className="reply-kpi-main">
+                <span className="reply-kpi-name">{b.name}</span>
+                {(b.org || b.cadence) && (
+                  <span className="reply-kpi-sub">{[b.org, b.cadence].filter(Boolean).join(' · ')}</span>
+                )}
+              </span>
+              {b.value && <span className="reply-kpi-value">{b.value}</span>}
+            </div>
+          );
+        }
+        if (b.kind === 'status') {
+          const shown = ['bad', 'watch', 'good'].filter((t) => b.counts[t] > 0);
+          return (
+            <div key={i} className={`reply-status${b.locked ? '' : ' is-open'}`}>
+              <span className="reply-status-org">{b.org}</span>
+              <span className="reply-status-counts">
+                {shown.map((t) => (
+                  <span key={t} className={`tally tally-${t}`}>{b.counts[t]} {t}</span>
+                ))}
+                <span className="reply-status-lock">{b.locked ? '🔒 Locked' : '⏳ Not locked'}</span>
+              </span>
+            </div>
+          );
+        }
+        if (b.kind === 'item') {
+          return (
+            <div key={i} className={`reply-item${b.icon === '✅' ? ' is-done' : ''}`}>
+              <span className="reply-item-icon" aria-hidden>{b.icon === '•' ? '' : b.icon}</span>
+              <span>{b.text}</span>
+            </div>
+          );
+        }
+        if (b.kind === 'section') return <div key={i} className="reply-section">{b.text}</div>;
+        if (b.kind === 'next') return <div key={i} className="reply-next"><b>Next</b> {b.text}</div>;
+        if (b.kind === 'more') return <div key={i} className="reply-more">{b.text}</div>;
+        if (b.kind === 'warn') return <div key={i} className="reply-warn">{b.text}</div>;
+        return <p key={i} className="reply-text">{b.text}</p>;
+      })}
+    </div>
+  );
+}
+
 function AgentChatPanel({
   orgSlug,
   activeOrg,
@@ -1370,13 +1504,13 @@ function AgentChatPanel({
           >
             <div className="agent-msg-meta">{item.role === 'user' ? 'You' : 'Portfolio'}</div>
             <div className="agent-bubble">
-              <p>{item.content}</p>
+              {item.role === 'assistant' ? <AgentReply text={item.content} /> : <p>{item.content}</p>}
               {item.role === 'assistant' && item.tools?.length > 0 && (
                 <ul className="tool-calls" aria-label="Tools used">
-                  {item.tools.map((tool, ti) => (
-                    <li key={`${tool}-${ti}`} className="tool-call done" style={{ animationDelay: `${ti * 80}ms` }}>
+                  {[...item.tools.reduce((m, t) => m.set(t, (m.get(t) ?? 0) + 1), new Map())].map(([tool, n], ti) => (
+                    <li key={tool} className="tool-call done" style={{ animationDelay: `${ti * 80}ms` }}>
                       <span className="tool-call-icon" aria-hidden>✓</span>
-                      <span>{TOOL_LABELS[tool] ?? tool}</span>
+                      <span>{TOOL_LABELS[tool] ?? tool}{n > 1 ? ` ×${n}` : ''}</span>
                     </li>
                   ))}
                 </ul>

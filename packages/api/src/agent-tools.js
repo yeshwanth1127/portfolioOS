@@ -103,7 +103,7 @@ const ACTION_SUMMARIES = {
   show_kpi: 'One KPI: per-cadence goals (day/week/month/quarter), value to date and good/watch/bad for a date.',
   list_kpis: 'All active KPIs for an org (requires org_slug), each with its tracked cadences and goal per cadence.',
   list_waiting: 'Submissions not locked yet for a date, with submission_id (use it for validate_submission / amend_number / withdraw_submission).',
-  list_off_track: 'KPIs in watch or bad today, per cadence (day/week/month/quarter to date).',
+  list_off_track: 'KPIs in watch or bad for a date (default today; pass date YYYY-MM-DD for another day), per cadence (day/week/month/quarter to date). Only locked days are scored.',
   who_owns: 'Who owns a kpi_code.',
   find_person: 'Search people by name (partial).',
   list_escalations: 'Open escalations.',
@@ -139,7 +139,25 @@ A KPI can be tracked every day, week, month and/or quarter, each with its own go
 Managers see their org; members usually record only KPIs they own. Use validate_submission then lock_day to close a day.
 For a portfolio or org summary, report performance: list_off_track (omit org_slug for the whole portfolio), check_day per org, check_readiness. Do not describe org profiles unless asked.
 Dates: pass YYYY-MM-DD or omit (defaults to today).
-kpi_code accepts the exact code (comms.creatives) or the KPI name ("creatives delivered"); org_slug accepts the slug or the org name. If a call returns candidates, pick the right code and retry.`;
+kpi_code accepts the exact code (comms.creatives) or the KPI name ("creatives delivered"); org_slug accepts the slug or the org name. If a call returns candidates, pick the right code and retry.
+
+Always pass the date the user means (the message carries it as YYYY-MM-DD) to every tool that takes one.
+
+REPLY FORMAT — plain text, shown in the dashboard and sent on WhatsApp. Never use markdown (**, #, backticks, tables) or JSON.
+Line 1: short headline that names what was asked plus the date, no full stop (e.g. "Portfolio on 11 Nov", "Off track at PATS, 11 Nov"). Then a blank line.
+For a broad "how are we doing" question: one 🔒/⏳ line per organisation (locked first), then the 3 worst KPI lines. Then only these line types:
+  🔴 PATS · Drone serviceability — 66.7% of 90%, day      (one KPI; dot = 🔴 bad, 🟡 watch, 🟢 good, ⚪ not scored)
+  🔒 TMS — locked · 2 bad, 1 watch, 5 good               (day status; ⏳ TMS — not locked)
+  👤 Anju Raj — PATS manager                              (a person)
+  ✅ Saved — daily goal for Drone serviceability is now 85%   (only if the write tool returned ok; else "Not saved — <reason>")
+  • anything else, one short line
+  Next: <one useful follow-up>                            (optional, last line)
+Answer only what was asked: "worst 3" is exactly 3 KPI lines (plus an optional Next line) — no extra status, people or commentary lines. Every number must come from a tool result in this turn.
+Use the org names and KPI names exactly as the tools return them. Never show codes or ids. Say good/watch/bad, never green/amber/red. Indian number grouping, ₹ for INR, 1 decimal. Max 8 item lines, then "+N more".`;
+
+function todayIst() {
+  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 /** Machine-readable catalogue for agent runtimes (ADK must discover, not hardcode). */
 export function getToolCatalog(role = null) {
@@ -161,7 +179,7 @@ export function getToolCatalog(role = null) {
   return {
     capability: 'portfolio_os',
     invoke: 'POST /agent/tools/portfolio_os',
-    playbook: PORTFOLIO_PLAYBOOK,
+    playbook: `${PORTFOLIO_PLAYBOOK}\nToday is ${todayIst()} (Asia/Kolkata); resolve "yesterday", "this week" etc. from that date.`,
     tools,
   };
 }
@@ -217,13 +235,13 @@ export async function dispatchAgentTool(client, membership, rawBody, logToolCall
     case 'check_day':
       return getOrgStatus(client, membership, body.org_slug, body.date);
     case 'show_kpi':
-      return getKpi(client, membership, body.org_slug, body.kpi_code, body.period);
+      return getKpi(client, membership, body.org_slug, body.kpi_code, body.period ?? body.date ?? body.period_date);
     case 'list_kpis':
       return listKpis(client, membership, body.org_slug);
     case 'list_waiting':
       return listWaiting(client, membership, body.org_slug, body.date);
     case 'list_off_track':
-      return listBreaches(client, membership, body.org_slug, body.severity);
+      return listBreaches(client, membership, body.org_slug, body.severity, body.date ?? body.period_date);
     case 'who_owns':
       return whoOwns(client, membership, body.org_slug, body.kpi_code);
     case 'find_person':
@@ -299,43 +317,65 @@ async function getReadiness(client, membership, orgSlug) {
     orgClauseKpi = 'AND o.id = $1';
   }
   const { rows: unnamed } = await client.query(
-    `SELECT o.slug, count(*)::int AS c FROM memberships m
+    `SELECT o.short_name AS org, count(*)::int AS people FROM memberships m
      JOIN organisations o ON o.id = m.org_id
      WHERE m.state = 'pending_name' ${orgClauseUnnamed}
-     GROUP BY o.slug`,
+     GROUP BY o.short_name ORDER BY 2 DESC`,
     params,
   );
   const { rows: nullTargets2 } = await client.query(
-    `SELECT o.slug, count(*)::int AS c FROM kpis k
+    `SELECT o.short_name AS org, count(*)::int AS kpis FROM kpis k
      JOIN organisations o ON o.id = k.org_id
-     WHERE k.target IS NULL AND k.unmeasured = false ${orgClauseKpi}
-     GROUP BY o.slug`,
+     WHERE k.target IS NULL AND k.unmeasured = false AND k.status = 'active' ${orgClauseKpi}
+     GROUP BY o.short_name ORDER BY 2 DESC`,
     params,
   );
   return {
-    unnamed_by_org: unnamed,
-    null_targets_by_org: nullTargets2,
-    note: 'Lead with readiness until targets and roster are complete.',
+    people_still_unnamed: unnamed,
+    kpis_without_goal: nullTargets2,
+    note: 'Setup gaps, not performance. people_still_unnamed are placeholder team members (e.g. "Associate 1") awaiting real names; kpis_without_goal are measures with no goal set.',
   };
 }
 
 async function getOrgStatus(client, membership, orgSlug, date) {
   const orgId = await resolveOrgId(client, membership, orgSlug);
-  if (!orgId) return { error: { code: 'not_found', message: 'Organisation not in scope' } };
+  if (!orgId) {
+    return {
+      error: {
+        code: 'org_required',
+        message: 'check_day is per organisation: pass org_slug. For the whole portfolio use list_off_track. Do not report anything from this call.',
+      },
+    };
+  }
   const period = date ?? new Date().toISOString().slice(0, 10);
   const { rows: lock } = await client.query(
     `SELECT locked_at FROM signoffs WHERE org_id = $1 AND period_date = $2`,
     [orgId, period],
   );
-  const { rows: ragCounts } = await client.query(
-    `SELECT how_often, rag, count(*)::int FROM scores WHERE org_id = $1 AND period_date = $2 GROUP BY how_often, rag ORDER BY how_often, rag`,
+  // Each KPI counted once, at its worst colour across cadences.
+  const { rows: perKpi } = await client.query(
+    `SELECT kpi_id,
+            CASE WHEN bool_or(rag = 'red') THEN 'bad'
+                 WHEN bool_or(rag = 'amber') THEN 'watch'
+                 WHEN bool_or(rag = 'green') THEN 'good'
+                 ELSE 'unscored' END AS colour
+     FROM scores WHERE org_id = $1 AND period_date = $2 GROUP BY kpi_id`,
     [orgId, period],
   );
   const { rows: unscored } = await client.query(
     `SELECT count(*)::int AS c FROM kpis WHERE org_id = $1 AND target IS NULL AND unmeasured = false`,
     [orgId],
   );
-  return { period_date: period, locked: Boolean(lock[0]), rag_counts: ragCounts, unscored_kpis: unscored[0]?.c ?? 0 };
+  const { rows: org } = await client.query(`SELECT short_name FROM organisations WHERE id = $1`, [orgId]);
+  const count = (c) => perKpi.filter((r) => r.colour === c).length;
+  return {
+    org: org[0]?.short_name,
+    date: period,
+    locked: Boolean(lock[0]),
+    kpis: { bad: count('bad'), watch: count('watch'), good: count('good') },
+    kpis_without_goal: unscored[0]?.c ?? 0,
+    note: lock[0] ? undefined : `Day ${period} is not locked, so it is not scored yet.`,
+  };
 }
 
 async function getKpi(client, membership, orgSlug, kpiCode, period) {
@@ -519,10 +559,10 @@ async function listPending(client, membership, orgSlug, date) {
   return { pending: rows };
 }
 
-async function listBreaches(client, membership, orgSlug, severity) {
+async function listBreaches(client, membership, orgSlug, severity, date) {
   const orgId = await resolveOrgId(client, membership, orgSlug);
-  const period = new Date().toISOString().slice(0, 10);
-  let sql = `SELECT k.code, k.name, k.unit, s.how_often, s.value AS value_to_date, s.goal, s.paced_goal AS goal_to_date, s.rag FROM scores s JOIN kpis k ON k.id = s.kpi_id WHERE s.period_date = $1 AND s.rag IN ('red','amber')`;
+  const period = date ?? new Date().toISOString().slice(0, 10);
+  let sql = `SELECT o.short_name AS org, k.code, k.name, k.unit, s.how_often, s.value AS value_to_date, s.goal, s.paced_goal AS goal_to_date, s.rag FROM scores s JOIN kpis k ON k.id = s.kpi_id JOIN organisations o ON o.id = k.org_id WHERE s.period_date = $1 AND s.rag IN ('red','amber')`;
   const params = [period];
   if (orgId) {
     sql += ` AND s.org_id = $2`;
@@ -534,7 +574,37 @@ async function listBreaches(client, membership, orgSlug, severity) {
   if (severity === 'red') sql += ` AND s.rag = 'red'`;
   sql += ` ORDER BY s.rag DESC, k.code`;
   const { rows } = await client.query(sql, params);
-  return { breaches: rows.map((r) => ({ ...r, colour: RAG_WORDS[r.rag] ?? r.rag })) };
+  // One entry per KPI at its worst cadence (bad before watch; day before week/month/quarter),
+  // so "worst N" means N different KPIs. Other off-track cadences ride along.
+  const CAD_ORDER = { 'Every day': 0, 'Every week': 1, 'Every month': 2, 'Every quarter': 3 };
+  const rank = (r) => (r.rag === 'red' ? 0 : 10) + (CAD_ORDER[r.how_often] ?? 9);
+  const byKpi = new Map();
+  for (const r of [...rows].sort((a, b) => rank(a) - rank(b))) {
+    const cadence = CADENCE_SHORT[r.how_often] ?? r.how_often;
+    const colour = RAG_WORDS[r.rag] ?? r.rag;
+    const seen = byKpi.get(r.code);
+    if (seen) {
+      seen.also_off_track.push(`${cadence} (${colour})`);
+      continue;
+    }
+    byKpi.set(r.code, {
+      org: r.org,
+      kpi: r.name,
+      unit: r.unit,
+      cadence,
+      value_to_date: r.value_to_date,
+      goal_to_date: r.goal_to_date ?? r.goal,
+      colour,
+      also_off_track: [],
+    });
+  }
+  const off = [...byKpi.values()];
+  return {
+    date: period,
+    counts: { bad: off.filter((k) => k.colour === 'bad').length, watch: off.filter((k) => k.colour === 'watch').length },
+    off_track: off,
+    note: off.length ? 'Sorted worst first; one row per KPI.' : `Nothing scored watch or bad on ${period} (only locked days are scored).`,
+  };
 }
 
 export { scoreOrgDay, READ_ACTIONS, WRITE_ACTIONS };

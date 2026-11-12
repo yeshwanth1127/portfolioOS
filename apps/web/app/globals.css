@@ -8,6 +8,15 @@
   --coral: #e09a94;
   --teal: #8fbfb6;
   --danger: #b42318;
+  /* good / watch / bad — agent replies */
+  --good: #1f7a52;
+  --good-bg: #e8f5ee;
+  --watch: #9a6200;
+  --watch-bg: #fdf3e1;
+  --bad: #b42318;
+  --bad-bg: #fdecea;
+  --none: #6b7280;
+  --none-bg: #f1f2f4;
 }
 
 * { box-sizing: border-box; }
@@ -615,6 +624,132 @@ select.linefield {
   white-space: pre-wrap;
   line-height: 1.5;
   font-size: 0.97rem;
+}
+
+/* ---- Agent reply (colour-coded) ---- */
+.agent-msg-assistant:has(.reply-kpi, .reply-status) { width: min(580px, 92%); }
+.reply { display: flex; flex-direction: column; gap: 6px; }
+
+.reply-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-weight: 650;
+  font-size: 1rem;
+  margin-bottom: 4px;
+}
+.reply-tally { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.tally {
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.tally-good { color: var(--good); background: var(--good-bg); }
+.tally-watch { color: var(--watch); background: var(--watch-bg); }
+.tally-bad { color: var(--bad); background: var(--bad-bg); }
+
+.reply-kpi {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border-left: 3px solid var(--tone);
+  background: var(--tone-bg);
+}
+.reply-kpi.tone-good { --tone: var(--good); --tone-bg: var(--good-bg); }
+.reply-kpi.tone-watch { --tone: var(--watch); --tone-bg: var(--watch-bg); }
+.reply-kpi.tone-bad { --tone: var(--bad); --tone-bg: var(--bad-bg); }
+.reply-kpi.tone-none { --tone: var(--none); --tone-bg: var(--none-bg); }
+
+.reply-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--tone);
+  padding: 3px 7px;
+  border-radius: 6px;
+  min-width: 52px;
+  text-align: center;
+}
+.reply-kpi-main { display: flex; flex-direction: column; min-width: 0; }
+.reply-kpi-name { font-weight: 600; font-size: 0.93rem; line-height: 1.3; }
+.reply-kpi-sub { font-size: 0.76rem; color: var(--muted); }
+.reply-kpi-value {
+  font-weight: 650;
+  font-size: 0.9rem;
+  color: var(--tone);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.reply-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: #f7f8fa;
+  border: 1px solid var(--line);
+}
+.reply-status.is-open { background: #fff; border-style: dashed; }
+.reply-status-org { font-weight: 600; font-size: 0.93rem; }
+.reply-status-counts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.reply-status-lock { font-size: 0.76rem; color: var(--muted); margin-left: 2px; }
+.reply-status.is-open .reply-status-lock { color: var(--watch); font-weight: 600; }
+
+.reply-item {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #f7f8fa;
+  font-size: 0.93rem;
+}
+.reply-item-icon { width: 1.2em; flex: none; text-align: center; }
+.reply-item.is-done { background: var(--good-bg); color: var(--good); font-weight: 600; }
+
+.reply-section {
+  margin-top: 6px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.reply-text { margin: 0; line-height: 1.5; font-size: 0.95rem; }
+.reply-more { font-size: 0.82rem; color: var(--muted); padding-left: 2px; }
+.reply-warn {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bad-bg);
+  color: var(--bad);
+  font-weight: 600;
+  font-size: 0.93rem;
+}
+.reply-next {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed #cfd6de;
+  font-size: 0.88rem;
+  color: #4a5361;
+}
+.reply-next b { color: var(--blue); margin-right: 4px; }
+
+@media (max-width: 560px) {
+  .reply-kpi { grid-template-columns: auto 1fr; }
+  .reply-kpi-value { grid-column: 2; text-align: left; }
 }
 
 .thinking-bubble {
