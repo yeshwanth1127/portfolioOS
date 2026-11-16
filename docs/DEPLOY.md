@@ -15,6 +15,40 @@ Nothing else on the server is changed: a new nginx site file is added, existing 
 
 ---
 
+## First production run (Phase 0 exit — F14 + F15)
+
+Use this once per new production host (and after any role, port, or backup change). Local regression coverage is in [PHASE0_EXIT.md](./PHASE0_EXIT.md); roadmap gates: [ROADMAP.md](./ROADMAP.md) Phase 0.
+
+| Gate | What to verify | Reference |
+|------|----------------|-----------|
+| **F14 ADK** | Qlix ships a **committed**, tested `portfolio_os` capability with catalogue-driven `input_schema` (no Portfolio-specific patches from this repo). Pin `QLIX_MONOREPO_SHA` in `docs/decisions.md`. Until then, Part A step A1 still applies. | [F14-adk-coordination.md](./F14-adk-coordination.md) |
+| **F15 server** | App DB role `f\|f`, only nginx on public 80/443, web on `127.0.0.1:3101`, daily `pg_dump` + `portfolio_wa_auth` tarball, `WHATSAPP_AUTH_ENCRYPTION_KEY` backed up with secrets | § Phase 0 server checks below |
+| **Automated** | `server-setup.sh` runs `phase0-server-checks.sh` after the stack is up; re-run manually after fixes | `scripts/phase0-server-checks.sh` |
+
+**Engineer checklist (on server, after B5):**
+
+1. `WEB_PORT=3101 bash /opt/exora/sona-ecosystem/scripts/phase0-server-checks.sh` — exit 0; save output to the ops log.
+2. Confirm public exposure: `ss -ltnp \| grep -E ':(80\|443) '` shows nginx only; `3101` is `127.0.0.1`, not `0.0.0.0`.
+3. Schedule backups (PostgreSQL + WhatsApp volume + encryption key); run one restore drill monthly (§ Phase 0 server checks).
+4. Browser: sign in, **Agent** tab — quick portfolio summary within ~10 s (proves F14 inference path end-to-end).
+
+**Before first deploy from a laptop:** `npm test` green on the commit you ship (F1–F13; **133** tests at Phase 8 local gate).
+
+---
+
+## Phase 8 — Commercial pilot (local gate shipped)
+
+| Item | Production setup |
+|------|------------------|
+| **Backups** | Daily `scripts/backup-workspace.sh` or § Phase 0 commands; WA volume + `WHATSAPP_AUTH_ENCRYPTION_KEY` with secrets |
+| **Restore drill** | Monthly — [SUPPORT_RUNBOOK.md](./SUPPORT_RUNBOOK.md) |
+| **Rate limits** | In-memory in API (`RATE_LIMIT_*`); **defer Redis** until multi-instance |
+| **Admin provisioning** | `PORTFOLIO_ADMIN_SECRET` + `POST /admin/workspaces/:id/entitlements` |
+| **Error monitoring** | Optional `SENTRY_DSN` (hook only; no SDK in local gate) |
+| **Rollback** | Tagged images + DB restore if migration not reversible — runbook § Rollback |
+
+---
+
 ## Part A — Yeshwanth does this on his Mac (before the engineer starts)
 
 **A1. Push the PortfolioOS agent code in qlix-monorepo** (it was never committed; the server needs it):
@@ -149,3 +183,58 @@ Data lives in Docker volumes `portfolio_portfolio_pg`, `portfolio_wa_auth`, `qli
 - Only nginx is public. Web is 127.0.0.1:3101; the API, agent-runner, WhatsApp gateway and both Postgres bind to localhost or Docker networks only.
 - All demo users share `DEMO_PASSWORD` — change it before sharing with anyone beyond the investor.
 - The root password was shared in chat: **rotate it** (`passwd`) and prefer SSH keys (`PasswordAuthentication no`).
+
+## Phase 0 server checks (F15)
+
+Run after deploy or any change to roles, ports, or backups. Record the output in your ops log.
+
+**Database role (must be `f|f` — not superuser, no BYPASSRLS):**
+
+```bash
+docker compose -p portfolio exec -T postgres \
+  psql "$DATABASE_URL" -U portfolio_app -d portfolio_os \
+  -tAc "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user"
+```
+
+If the app still connects as the legacy `portfolio` superuser, run `packages/db/scripts/bootstrap.js` with `ADMIN_DATABASE_URL`, then point `DATABASE_URL` at `portfolio_app` and restart.
+
+**Port exposure (only nginx 80/443 on the public interface):**
+
+```bash
+ss -ltnp | grep -E ':(80|443|3101|4001|3938|3939|3940|5432|5433) '
+# 80/443 → nginx; 3101 → 127.0.0.1 only; API/runner/gateway/Postgres not on 0.0.0.0
+```
+
+**Secrets in production:** supervisord sets `NODE_ENV=production` for API, agent-runner and wa-gateway. A container started with default dev secrets must exit immediately — check `docker compose -p portfolio logs portfolio` if the stack keeps restarting after you copy `.env`.
+
+**Backups (daily PostgreSQL + WhatsApp session volume):**
+
+```bash
+docker compose -p portfolio exec -T postgres pg_dump -U portfolio_migrator portfolio_os \
+  > "/root/portfolio-$(date +%F).sql"
+docker run --rm -v portfolio_wa_auth:/data -v /root:/backup alpine \
+  tar czf "/backup/wa-auth-$(date +%F).tar.gz" -C /data .
+grep WHATSAPP_AUTH_ENCRYPTION_KEY /opt/exora/sona-ecosystem/.env   # must be set and backed up with secrets
+```
+
+**Restore drill (monthly):** restore a dump to a scratch database, confirm logins and RLS; restore `wa-auth-*.tar.gz` into a test volume and confirm WhatsApp resumes without a new QR (requires the same `WHATSAPP_AUTH_ENCRYPTION_KEY`).
+
+**Automated script (after deploy):**
+
+```bash
+WEB_PORT=3101 bash /opt/exora/sona-ecosystem/scripts/phase0-server-checks.sh
+```
+
+`scripts/server-setup.sh` runs this after the stack is up. New servers must set `MIGRATOR_DB_PASSWORD` and `APP_DB_PASSWORD` in `.env` (see `.env.server.example`); the container entrypoint bootstraps roles before migrations.
+
+## Meetings (LiveKit)
+
+`scripts/server-setup.sh` handles this on a fresh server and on update:
+
+- it generates `LIVEKIT_API_SECRET`;
+- it sets `LIVEKIT_PUBLIC_URL=wss://<domain>/lk`;
+- it adds the nginx `location /lk/` proxy to `127.0.0.1:7880`;
+- it opens **7881/tcp** and **7882/udp** in ufw.
+
+If the server sits behind a cloud firewall or security group, open those two ports there too. Without
+them, calls connect but no audio or video flows. See [MEETINGS.md](MEETINGS.md).

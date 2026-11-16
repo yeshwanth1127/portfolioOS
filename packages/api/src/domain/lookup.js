@@ -40,6 +40,18 @@ export async function findKpi(client, membership, ref, orgRef) {
   const exact = await dbQuery(client, `${base} AND lower(k.code) = $1`, [r]);
   if (exact.rows[0]) return scoped(exact.rows[0], membership);
 
+  // A code-shaped ref ("alpha.daily") names an organisation. Never let a fuzzy match land it on a
+  // KPI in a different organisation: outside your own org it simply does not exist for you.
+  if (r.includes('.')) {
+    const prefix = r.slice(0, r.indexOf('.'));
+    const prefixOrg = await findOrg(client, prefix);
+    if (prefixOrg && prefixOrg.slug === prefix) {
+      if (membership.role !== 'owner' && prefixOrg.id !== membership.org_id) {
+        return { error: { code: 'not_found', message: `No active KPI matches "${ref}".` } };
+      }
+      orgId = prefixOrg.id;
+    }
+  }
   // Drop an org prefix the model may have invented ("comms.creatives_delivered" → "creatives delivered").
   const bare = r.includes('.') ? r.slice(r.indexOf('.') + 1) : r;
   const words = bare.replace(/[_.]/g, ' ').trim();

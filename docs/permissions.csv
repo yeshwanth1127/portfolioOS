@@ -1,0 +1,16 @@
+action,scope,owner,manager,vice_manager,team_lead,member,notes
+submission.record,org,Y,Y,Y,Y,Y*,member only if KPI owner
+submission.approve,org/subtree,Y,Y,Y,Y*,N,team_lead subtree + no self-review in domain
+submission.amend,org,Y,Y*,Y*,Y*,Y*,submitter or reviewer; period not locked in domain
+day.lock,org,Y,Y,N,N,N,canLockDay
+day.reopen,org,Y,Y,N,N,N,canLockDay
+kpi.edit,org,Y,N,N,N,N,register add/update/retire
+person.manage,org,Y,Y,Y,N,N,managesOrg
+unit.manage,org,Y,Y,Y,N,N,managesOrg
+invitation.create,org,Y,Y,Y,N,N,managesOrg
+calendar.event.create,workspace,Y,Y,Y,Y,Y,
+calendar.edit,event,Y,Y*,Y*,N,Y*,creator or owner or mgr/vice on same org in domain
+project.edit,workspace,Y,Y,Y,N,N,owner/manager/vice or project manager in domain
+task.assign,project,Y,Y,Y,Y,N,project manager or org mgr/vice/lead in domain
+meeting.create,workspace,Y,Y,Y,Y,Y,non-owners create in their own organisation
+meeting.manage,meeting,Y,Y*,Y*,Y*,Y*,host or owner or mgr/vice on the meeting org in domain

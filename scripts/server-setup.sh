@@ -55,15 +55,17 @@ QLIX_NET="$(docker network ls --format '{{.Name}}' | grep -E '^qlix-monorepo_def
 
 log "3/7 PortfolioOS .env"
 cd "$SONA"
+set_env() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
 if [[ ! -f .env ]]; then
   cp .env.server.example .env
-  set_env() { if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi; }
   set_env JWT_SECRET "$(openssl rand -hex 32)"
   set_env AGENT_RUNNER_SECRET "$(openssl rand -hex 32)"
   set_env WA_SERVICE_SECRET "$(openssl rand -hex 32)"
   set_env DEMO_PASSWORD "sona-$(openssl rand -hex 6)"
   set_env WA_CONNECTOR_ID "$(uuidgen)"
   set_env WHATSAPP_AUTH_ENCRYPTION_KEY "$(openssl rand -hex 32)"
+  set_env MIGRATOR_DB_PASSWORD "$(openssl rand -hex 16)"
+  set_env APP_DB_PASSWORD "$(openssl rand -hex 16)"
   set_env WEB_PORT "$WEB_PORT"
   set_env QLIX_NETWORK "$QLIX_NET"
   set_env QLIX_BACKEND_URL "http://backend:4000"
@@ -80,11 +82,22 @@ if ! grep -qE '^QLIX_AGENT_ID=.+' .env; then
   sed -i "s|^QLIX_AGENT_ID=.*|QLIX_AGENT_ID=$AID|; s|^QLIX_RUNNER_TOKEN=.*|QLIX_RUNNER_TOKEN=$TOK|" .env
 fi
 
+# Meetings (LiveKit): also added to an existing .env on update.
+grep -q '^LIVEKIT_API_KEY=.' .env || set_env LIVEKIT_API_KEY "orbit"
+grep -q '^LIVEKIT_API_SECRET=.' .env || set_env LIVEKIT_API_SECRET "$(openssl rand -hex 32)"
+set_env LIVEKIT_PUBLIC_URL "wss://$DOMAIN/lk"
+chmod 600 .env
+# Media ports (signalling goes through nginx below).
+if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then ufw allow 7881/tcp >/dev/null; ufw allow 7882/udp >/dev/null; fi
+
 log "5/7 PortfolioOS containers (first build takes a few minutes)"
 cd "$ROOT"
 docker compose -p portfolio --project-directory "$SONA" -f "$SONA/docker-compose.yml" -f "$SONA/docker-compose.server.yml" up -d --build
 for _ in $(seq 1 90); do curl -fsS "http://127.0.0.1:$WEB_PORT" >/dev/null 2>&1 && break; sleep 3; done
 curl -fsS "http://127.0.0.1:$WEB_PORT" >/dev/null || die "PortfolioOS web not up — docker compose -p portfolio logs portfolio"
+
+log "5b/7 Phase 0 server checks"
+WEB_PORT="$WEB_PORT" bash "$SONA/scripts/phase0-server-checks.sh" || die "Phase 0 checks failed — fix roles/secrets before going live (docs/DEPLOY.md)"
 
 log "6/7 nginx site for $DOMAIN"
 cat > "/etc/nginx/sites-available/$DOMAIN" <<NGINX
@@ -93,6 +106,16 @@ server {
     listen [::]:80;
     server_name $DOMAIN;
     client_max_body_size 10m;
+
+    # Meetings signalling → LiveKit in the meetings container (media uses 7881/tcp, 7882/udp).
+    location /lk/ {
+        proxy_pass http://127.0.0.1:7880/;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400s;   # a call can last hours
+    }
 
     location / {
         proxy_pass http://127.0.0.1:$WEB_PORT;

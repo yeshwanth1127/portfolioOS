@@ -32,7 +32,7 @@ async function tool(token, body) {
 }
 
 async function main() {
-  const period = new Date().toISOString().slice(0, 10);
+  const period = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
   const ownerToken = await login('owner@portfolio.local');
   const managerToken = await login('indhumathi@portfolio.local');
   const memberToken = await login('harini@portfolio.local');

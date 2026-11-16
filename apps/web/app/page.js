@@ -1,8 +1,21 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4001';
+import { useSearchParams } from 'next/navigation';
+import OverviewV1 from './components/overview-v1';
+import QlixSettingsPanel from './components/qlix-settings';
+import AppShell from './components/app-shell';
+import Landing from './components/landing';
+import GoalSetter from './components/goal-setter';
+import { addDays } from './lib/dates.js';
+import { api } from './lib/api.js';
+import {
+  ORG_CHANGE_EVENT,
+  readStoredOrgSlug,
+  readStoredSession,
+  writeStoredOrgSlug,
+  writeStoredSession,
+} from './lib/session.js';
 
 const DEMO_PW = process.env.NEXT_PUBLIC_DEMO_PASSWORD || 'password123';
 const HIDE_DEMO_LOGINS = process.env.NEXT_PUBLIC_HIDE_DEMO_LOGINS === '1';
@@ -34,8 +47,16 @@ function roleLabel(role) {
   return ROLE_LABELS[role] ?? role ?? '—';
 }
 
+const BUSINESS_TZ = process.env.NEXT_PUBLIC_PORTFOLIO_TZ ?? 'Asia/Kolkata';
+
+/** Today's business date (YYYY-MM-DD) in the portfolio timezone — not the UTC date. */
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }
 
 const TOOL_LABELS = {
@@ -161,15 +182,6 @@ function isQuarterlyKpi(k) {
   return /quarter/i.test(k.how_often || '');
 }
 
-function slugifyMeasureCode(orgSlug, name) {
-  const base = String(name || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-    .slice(0, 40) || 'measure';
-  return `${orgSlug}.${base}`;
-}
-
 function prettyDate() {
   return new Date().toLocaleDateString('en-IN', {
     day: 'numeric',
@@ -182,42 +194,9 @@ function submissionLabel(state) {
   if (state === 'submitted') return { text: 'Waiting', tone: 'warn' };
   if (state === 'validated') return { text: 'Accepted', tone: 'ok' };
   if (state === 'rejected') return { text: 'Rejected', tone: 'danger' };
-  if (state === 'locked') return { text: 'Locked', tone: 'ok' };
+  if (state === 'locked') return { text: 'Closed', tone: 'ok' };
   if (state === 'amended') return { text: 'Amended', tone: 'warn' };
   return { text: state || '—', tone: '' };
-}
-
-const SESSION_KEY = 'portfolio-os-session';
-const ORG_KEY = 'portfolio-os-org';
-
-function readStoredSession() {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredSession(next) {
-  if (typeof window === 'undefined') return;
-  if (next?.token) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-  else localStorage.removeItem(SESSION_KEY);
-}
-
-async function api(path, token, options = {}) {
-  const res = await fetch(`${API}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error?.message ?? 'Request failed');
-  return data;
 }
 
 /** Session and org come from localStorage, so render only in the browser (avoids hydration mismatch). */
@@ -227,17 +206,26 @@ export default function Home() {
   return mounted ? <PortfolioApp /> : null;
 }
 
+const HOME_TABS = new Set([
+  'overview',
+  'calendar',
+  'today',
+  'kpis',
+  'team',
+  'account',
+  'agent',
+  'settings',
+]);
+
 function PortfolioApp() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState(HIDE_DEMO_LOGINS ? '' : 'owner@portfolio.local');
   const [password, setPassword] = useState(HIDE_DEMO_LOGINS ? '' : DEMO_PW);
   const [error, setError] = useState('');
   const [session, setSession] = useState(readStoredSession);
   const [orgs, setOrgs] = useState([]);
   const [readiness, setReadiness] = useState(null);
-  const [orgSlug, setOrgSlug] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(ORG_KEY) || readStoredSession()?.membership?.org_slug || null;
-  });
+  const [orgSlug, setOrgSlug] = useState(() => readStoredOrgSlug());
   const [tab, setTab] = useState('overview');
   const [kpis, setKpis] = useState([]);
   const [people, setPeople] = useState([]);
@@ -259,49 +247,61 @@ function PortfolioApp() {
   const [chatBusy, setChatBusy] = useState(false);
   const [thinkPhase, setThinkPhase] = useState(0);
   const [myPhone, setMyPhone] = useState('');
+  const [overviewData, setOverviewData] = useState(null);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
+  /** Overview date filter: null = today (the server picks the workspace's today). */
+  const [overviewDate, setOverviewDate] = useState(null);
+  const [calendarFeed, setCalendarFeed] = useState(null);
+  const [attentionId, setAttentionId] = useState(null);
   const chatEndRef = useRef(null);
   const chatScrollRef = useRef(null);
 
   const membership = session?.membership;
   const activeOrg = orgs.find((o) => o.slug === orgSlug) ?? null;
 
+  useEffect(() => {
+    if (!session) return;
+    const tabParam = searchParams.get('tab');
+    if (!tabParam) return;
+    if (!HOME_TABS.has(tabParam)) return;
+    if (tabParam === 'settings' && membership?.role !== 'owner') return;
+    if (tabParam === 'agent' && membership?.role !== 'owner') return;
+    setTab(tabParam);
+  }, [session, membership?.role, searchParams]);
+
   function clearSession() {
     writeStoredSession(null);
-    if (typeof window !== 'undefined') localStorage.removeItem(ORG_KEY);
+    writeStoredOrgSlug(null);
     setSession(null);
     setOrgSlug(null);
     setOrgs([]);
     setReadiness(null);
   }
 
-  async function login(e) {
-    e.preventDefault();
+  /** Record the sign-out (for the Sign-ins report), then forget the session either way. */
+  async function signOut() {
+    const token = session?.token;
+    if (token) await api('/auth/logout', token, { method: 'POST' }).catch(() => {});
+    clearSession();
+  }
+
+  /** A session from sign-in or sign-up (components/landing.js). */
+  function applySession(data, { isNew = false } = {}) {
     setError('');
-    try {
-      const data = await api('/auth/login', null, {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
-      writeStoredSession(data);
-      setSession(data);
-      setMyPhone(data.membership.phone_e164 ?? '');
-      const nextOrg = data.membership.org_slug ?? null;
-      setOrgSlug(nextOrg);
-      if (typeof window !== 'undefined') {
-        if (nextOrg) localStorage.setItem(ORG_KEY, nextOrg);
-        else localStorage.removeItem(ORG_KEY);
-      }
-      setOrgForm(null);
-      setTab(
-        data.membership.role === 'owner'
-          ? 'today'
-          : ['member', 'team_lead'].includes(data.membership.role)
-            ? 'today'
-            : 'overview',
-      );
-    } catch (err) {
-      setError(err.message);
+    writeStoredSession(data);
+    if (isNew) {
+      // A brand-new workspace has no organisations yet: start by adding the first one.
+      writeStoredOrgSlug(null);
+      window.location.assign('/people?addOrg=1');
+      return;
     }
+    setSession(data);
+    setMyPhone(data.membership.phone_e164 ?? '');
+    const nextOrg = data.membership.org_slug ?? null;
+    setOrgSlug(nextOrg);
+    writeStoredOrgSlug(nextOrg);
+    setOrgForm(null);
+    setTab('overview');
   }
 
   useEffect(() => {
@@ -309,10 +309,17 @@ function PortfolioApp() {
   }, [session]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (orgSlug) localStorage.setItem(ORG_KEY, orgSlug);
-    else localStorage.removeItem(ORG_KEY);
+    writeStoredOrgSlug(orgSlug);
   }, [orgSlug]);
+
+  useEffect(() => {
+    const syncOrg = (e) => {
+      const next = e?.detail?.slug ?? readStoredOrgSlug();
+      if (next) setOrgSlug(next);
+    };
+    window.addEventListener(ORG_CHANGE_EVENT, syncOrg);
+    return () => window.removeEventListener(ORG_CHANGE_EVENT, syncOrg);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -351,6 +358,29 @@ function PortfolioApp() {
       setSubmissions(s.submissions ?? []);
     })().catch((err) => setError(err.message));
   }, [session, orgSlug]);
+
+  const refreshDashboard = async () => {
+    if (!session) return;
+    setOverviewRefreshing(true);
+    try {
+      const ov = await api(
+        overviewDate ? `/dashboards/overview?date=${encodeURIComponent(overviewDate)}` : '/dashboards/overview',
+        session.token,
+      );
+      setOverviewData(ov);
+      const from = ov.as_of ?? todayISO();
+      const cal = await api(`/calendar?from=${from}&to=${addDays(from, 41)}`, session.token);
+      setCalendarFeed(cal);
+    } finally {
+      setOverviewRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!session || tab !== 'overview') return;
+    setOverviewData(null);
+    refreshDashboard().catch((err) => setError(err.message));
+  }, [session, tab, overviewDate]);
 
   async function loadChatSession(sessionId, token) {
     const path = sessionId ? `/agent/chat?session_id=${encodeURIComponent(sessionId)}` : '/agent/chat';
@@ -519,314 +549,111 @@ function PortfolioApp() {
 
   if (!session) {
     return (
-      <div className="app">
-        <div className="board">
-        <header className="topbar">
-          <div className="mark"><span className="badge">P</span> Portfolio</div>
-        </header>
-        <div className="login">
-          <div className="login-copy">
-            <h1>See the day across every organisation.</h1>
-            <p>One portfolio for Thyagu Sir. Each manager runs their organisation; team leads own a squad.</p>
-          </div>
-          <form className="login-form" onSubmit={login}>
-            <h2>Sign in</h2>
-            <label>
-              Email
-              <input value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
-            </label>
-            <label>
-              Password
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-            </label>
-            <p className="err">{error}</p>
-            <button className="primary" type="submit">Sign in</button>
-            {!HIDE_DEMO_LOGINS && <p className="account-label">Continue as</p>}
-            {!HIDE_DEMO_LOGINS && <div className="accounts">
-              {ACCOUNTS.map(([name, role, mail, pw]) => (
-                <button
-                  key={mail}
-                  type="button"
-                  onClick={() => {
-                    setEmail(mail);
-                    setPassword(pw);
-                  }}
-                >
-                  <span>{name}</span>
-                  <small>{role}</small>
-                </button>
-              ))}
-            </div>}
-          </form>
-        </div>
-        </div>
-      </div>
+      <Landing
+        onSession={applySession}
+        notice={error}
+        demoAccounts={ACCOUNTS}
+        demoHidden={HIDE_DEMO_LOGINS}
+        initialEmail={email}
+        initialPassword={password}
+      />
     );
   }
-
-  const nav = membership.role === 'owner'
-    ? [
-      ['overview', 'Overview'],
-      ['today', 'Set goals'],
-      ['kpis', 'KPIs'],
-      ['team', 'Team'],
-      ['account', 'Account'],
-      ['agent', 'Agent'],
-      ['settings', 'Settings'],
-    ]
-    : [
-      ['overview', 'Overview'],
-      ['kpis', 'KPIs'],
-      ['team', 'Team'],
-      ['today', 'Today'],
-      ['account', 'Account'],
-    ];
 
   const firstName = (membership.full_name || '').split(' ')[0];
   const openItems = orgReadiness.unnamed + orgReadiness.missing;
 
   return (
-    <div className="app">
-      <div className={`board${tab === 'agent' ? ' board-agent' : ''}`}>
-        <header className="board-nav">
-          <button className="menu" type="button" onClick={() => setTab('overview')} aria-label="Overview">
-            <span /><span /><span />
-          </button>
-          <nav className="tabs">
-            {nav.map(([id, label]) => (
-              <button
-                key={id}
-                className={tab === id ? 'on' : ''}
-                type="button"
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="nav-right">
-            <select
-              className="orgpill"
-              value={orgSlug ?? ''}
-              onChange={(e) => {
-                setOrgSlug(e.target.value);
-                setOrgForm(null);
-                setKpiForm(null);
-                setEditingKpi(null);
-                setPersonForm(null);
-                setEditingPerson(null);
-                setFocusKpi(null);
-              }}
-            >
-              {orgs.map((org) => (
-                <option key={org.id} value={org.slug}>{org.short_name}</option>
-              ))}
-            </select>
+    <AppShell>
+    <div className="app app-in-shell pw-app">
+      <div className={`board pw-dashboard-panel${tab === 'agent' ? ' board-agent' : ''}`}>
+        <header className="board-nav board-nav-toolbar pw-context-bar">
+          <div className="nav-right board-nav-toolbar-right">
             <details className="user">
               <summary>{firstName}</summary>
               <button type="button" onClick={() => setTab('account')}>Account</button>
-              <button type="button" onClick={clearSession}>Sign out</button>
+              <button type="button" onClick={signOut}>Sign out</button>
             </details>
           </div>
         </header>
         {error && <p className="err banner">{error}</p>}
 
-        {orgSlug && tab === 'overview' && activeOrg && (
-          <>
-            <section className="hero">
-              <div className="period">
-                <button type="button" className={period === 'day' ? 'on' : ''} onClick={() => setPeriod('day')}>Day</button>
-                <button type="button" className={period === 'week' ? 'on' : ''} onClick={() => setPeriod('week')}>Week</button>
-                <button type="button" className={period === 'month' ? 'on' : ''} onClick={() => setPeriod('month')}>Month</button>
-              </div>
-              <div className="greet">
-                <h1>{greeting(membership.full_name)}</h1>
-                <p>{longDate()}</p>
-              </div>
-              <div className="stat"><span>KPIs</span><strong>{visibleKpis.length}</strong></div>
-              <div className="stat"><span>With a goal</span><strong>{withTarget}</strong></div>
-              <div className="stat"><span>People</span><strong>{people.length}</strong></div>
-              <div className="donutrow">
-                <Donut pct={targetPct} color="#234e86" />
-                <Donut pct={Math.min(100, sentPct)} color="#8fbfb6" />
-                <div className="stat">
-                  <span>Still open</span>
-                  <strong>{openItems}</strong>
-                </div>
-              </div>
-            </section>
-
-            {canEditKpis ? (
-              <section className="owner-goals-board">
-                <OwnerGoalSetter
-                  title="Set daily goals"
-                  hint={`For ${activeOrg.short_name}. Type each daily goal, then save once.`}
-                  kpis={dailyKpis}
-                  emphasize
-                  session={session}
-                  api={api}
-                  setError={setError}
-                  onSaved={reloadOrgBits}
-                />
-                <div className="owner-goals-side">
-                  <OwnerGoalSetter
-                    title="Weekly goals"
-                    hint="Optional — set when needed."
-                    kpis={weeklyKpis}
-                    session={session}
-                    api={api}
-                    setError={setError}
-                    onSaved={reloadOrgBits}
-                  />
-                  <OwnerGoalSetter
-                    title="Monthly goals"
-                    hint="Optional — set when needed."
-                    kpis={monthlyKpis}
-                    session={session}
-                    api={api}
-                    setError={setError}
-                    onSaved={reloadOrgBits}
-                  />
-                </div>
-              </section>
-            ) : canManage ? (
-              <section className="manage-board">
-                <div className="manage-panel">
-                  <div className="today-section-head">
-                    <h2>Goals set by owner</h2>
-                    <span>{visibleKpis.length}</span>
+        {tab === 'overview' && session && (
+          <div className="overview-shell overview-shell-analytics">
+            <div className="overview-main">
+              <OverviewV1
+                data={overviewData}
+                selectedId={attentionId}
+                onSelectAttention={(row) => setAttentionId((id) => (id === row.id ? null : row.id))}
+                onRefresh={refreshDashboard}
+                refreshing={overviewRefreshing}
+                today={todayISO()}
+                onDateChange={(d) => {
+                  setAttentionId(null);
+                  setOverviewDate(!d || d >= todayISO() ? null : d);
+                }}
+              />
+              {canManage && !canEditKpis && (
+                <p className="overview-legacy-hint muted-line">
+                  Enter today&apos;s numbers on the <button type="button" className="linkish" onClick={() => setTab('today')}>Today</button> tab.
+                </p>
+              )}
+              {canEditKpis && (
+                <p className="overview-legacy-hint muted-line">
+                  Set goals on the <button type="button" className="linkish" onClick={() => setTab('today')}>Set goals</button> page.
+                </p>
+              )}
+              {orgSlug && activeOrg && !canManage && (
+                <section className="workspace overview-member-workspace">
+                  <div className="entry">
+                    <div className="kicker">Record a number</div>
+                    <form onSubmit={submitValue}>
+                      <label>
+                        Measure
+                        <select className="linefield" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} required>
+                          <option value="">Choose</option>
+                          {visibleKpis.map((k) => <option key={k.id} value={k.code}>{k.name}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        Value
+                        <input className="linefield" type="number" step="any" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} required />
+                      </label>
+                      <button className="ghost" type="submit">Save number</button>
+                    </form>
                   </div>
-                  <p className="muted-line">Register for {activeOrg.short_name}. Goals come from Thyagu; assign owners on the KPIs tab.</p>
-                  {visibleKpis.length === 0 ? (
-                    <div className="today-empty">No KPIs in this organisation yet.</div>
-                  ) : (
-                    <ul className="goal-list">
-                      {visibleKpis.map((k) => (
-                        <li key={k.id} className="goal-row">
+                  <div className="dial-wrap">
+                    <KpiDial
+                      kpis={dialKpis}
+                      submitted={submittedCodes}
+                      focus={focusKpi}
+                      onFocus={setFocusKpi}
+                    />
+                    <div className="legend">
+                      <span><i className="swatch navy" /> With a goal</span>
+                      <span><i className="swatch coral" /> No goal</span>
+                      <span><i className="swatch teal" /> Sent today</span>
+                    </div>
+                  </div>
+                  <aside className="side">
+                    <div className="side-head">Team</div>
+                    <div className="teamlist">
+                      {people.map((p, i) => (
+                        <div className="person" key={p.id}>
+                          <i style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
                           <div>
-                            <b>{k.name}</b>
-                            <span>{k.code} · {trackedLabel(k)}{k.owner_name ? ` · ${k.owner_name}` : ''}</span>
+                            <b>{p.full_name}</b>
+                            <small>{p.state === 'pending_name' ? 'Name pending' : p.title}</small>
                           </div>
-                          <div className="goal-target">
-                            {k.target == null
-                              ? <span className="tag warn">No goal</span>
-                              : <><strong>{k.target}</strong> <em>{k.unit}</em></>}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="manage-panel">
-                  <div className="today-section-head">
-                    <h2>Today&apos;s numbers</h2>
-                    <span>{todayDone}/{todayTotal || 0}</span>
-                  </div>
-                  <p className="muted-line">Daily measures due today. Enter the value against the goal.</p>
-                  {dailyKpis.length === 0 ? (
-                    <div className="today-empty">No daily KPIs in this organisation.</div>
-                  ) : (
-                    <ul className="today-list">
-                      {dailyKpis.map((k) => (
-                        submittedCodes.has(k.code) ? (
-                          <li key={k.id} className="today-row is-sent">
-                            <div className="today-row-main">
-                              <div className="today-row-title"><b>{k.name}</b><span>{k.code}</span></div>
-                              <div className="today-row-goal">
-                                {k.target == null ? <span className="tag warn">No goal</span> : <span>Goal <strong>{k.target}</strong> {k.unit}</span>}
-                              </div>
-                              <span className="tag ok">Sent</span>
-                            </div>
-                          </li>
-                        ) : (
-                          <PendingKpiRow key={k.id} kpi={k} onSubmit={submitKpiValue} />
-                        )
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className="manage-panel">
-                  <div className="today-section-head">
-                    <h2>Monthly numbers</h2>
-                    <span>{monthlyKpis.filter((k) => submittedCodes.has(k.code)).length}/{monthlyKpis.length || 0}</span>
-                  </div>
-                  <p className="muted-line">Monthly measures. Enter this period&apos;s value against the goal.</p>
-                  {monthlyKpis.length === 0 ? (
-                    <div className="today-empty">No monthly KPIs in this organisation.</div>
-                  ) : (
-                    <ul className="today-list">
-                      {monthlyKpis.map((k) => (
-                        submittedCodes.has(k.code) ? (
-                          <li key={k.id} className="today-row is-sent">
-                            <div className="today-row-main">
-                              <div className="today-row-title"><b>{k.name}</b><span>{k.code}</span></div>
-                              <div className="today-row-goal">
-                                {k.target == null ? <span className="tag warn">No goal</span> : <span>Goal <strong>{k.target}</strong> {k.unit}</span>}
-                              </div>
-                              <span className="tag ok">Sent</span>
-                            </div>
-                          </li>
-                        ) : (
-                          <PendingKpiRow key={k.id} kpi={k} onSubmit={submitKpiValue} />
-                        )
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </section>
-            ) : (
-              <section className="workspace">
-                <div className="entry">
-                  <div className="kicker">Record a number</div>
-                  <form onSubmit={submitValue}>
-                    <label>
-                      Measure
-                      <select className="linefield" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} required>
-                        <option value="">Choose</option>
-                        {visibleKpis.map((k) => <option key={k.id} value={k.code}>{k.name}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Value
-                      <input className="linefield" type="number" step="any" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} required />
-                    </label>
-                    <button className="ghost" type="submit">Save number</button>
-                  </form>
-                </div>
-                <div className="dial-wrap">
-                  <KpiDial
-                    kpis={dialKpis}
-                    submitted={submittedCodes}
-                    focus={focusKpi}
-                    onFocus={setFocusKpi}
-                  />
-                  <div className="legend">
-                    <span><i className="swatch navy" /> With a goal</span>
-                    <span><i className="swatch coral" /> No goal</span>
-                    <span><i className="swatch teal" /> Sent today</span>
-                  </div>
-                </div>
-                <aside className="side">
-                  <div className="side-head">Team</div>
-                  <div className="teamlist">
-                    {people.map((p, i) => (
-                      <div className="person" key={p.id}>
-                        <i style={{ background: ROLE_COLORS[i % ROLE_COLORS.length] }} />
-                        <div>
-                          <b>{p.full_name}</b>
-                          <small>{p.state === 'pending_name' ? 'Name pending' : p.title}</small>
+                          <em>{roleLabel(p.role)}</em>
                         </div>
-                        <em>{roleLabel(p.role)}</em>
-                      </div>
-                    ))}
-                  </div>
-                  <MonthGrid />
-                </aside>
-              </section>
-            )}
-          </>
+                      ))}
+                    </div>
+                  </aside>
+                </section>
+              )}
+            </div>
+          </div>
         )}
 
         {tab !== 'overview' && (
@@ -841,23 +668,11 @@ function PortfolioApp() {
                     Green at goal · amber from 80% · red below.
                     {canManage && !canEditKpis ? ' Assign who owns each measure below.' : ''}
                     {!canManage ? ' View only.' : ''}
-                    {canEditKpis ? ' Set daily goals on Overview, or edit the register below.' : ''}
+                    {canEditKpis ? <> Goals live on <a className="linkish" href="/?tab=today">Set goals</a>.</> : ''}
                   </p>
                 </div>
                 {canEditKpis && <button className="primary" type="button" onClick={() => setKpiForm({ code: '', name: '', unit: 'count', how_often: 'Every day', target: '' })}>Add KPI</button>}
               </div>
-              {canEditKpis && (
-                <OwnerGoalSetter
-                  title="Daily goals"
-                  hint="Quick edit for every daily measure in this organisation."
-                  kpis={dailyKpis}
-                  emphasize
-                  session={session}
-                  api={api}
-                  setError={setError}
-                  onSaved={reloadOrgBits}
-                />
-              )}
               {canEditKpis && kpiForm && (
                 <form className="inline" onSubmit={async (e) => {
                   e.preventDefault();
@@ -965,6 +780,11 @@ function PortfolioApp() {
                 <div>
                   <h1>Team</h1>
                   <p>{activeOrg?.short_name}. Members report to a team lead; team leads report to the manager.</p>
+                  {canManage && (
+                    <p className="overview-legacy-hint muted-line">
+                      <a href="/people">Manage people on People page →</a>
+                    </p>
+                  )}
                 </div>
                 {canManage && (
                   <button
@@ -1173,7 +993,10 @@ function PortfolioApp() {
           )}
 
           {tab === 'settings' && membership.role === 'owner' && (
-            <WhatsAppSettingsPanel session={session} api={api} setError={setError} />
+            <>
+              <WhatsAppSettingsPanel session={session} api={api} setError={setError} />
+              <QlixSettingsPanel session={session} api={api} />
+            </>
           )}
 
           {tab === 'agent' && membership.role === 'owner' && (
@@ -1208,6 +1031,7 @@ function PortfolioApp() {
         )}
       </div>
     </div>
+    </AppShell>
   );
 }
 
@@ -1293,11 +1117,11 @@ function parseReply(text) {
       const cadence = cut > 0 ? right.slice(cut + 2) : '';
       blocks.push({ kind: 'kpi', tag, ...RAG_TAGS[tag], org, name, value, cadence });
     } else if (tag && ITEM_TAGS.includes(tag)) {
-      const status = /^(.+?)\s+[—–-]\s+(locked|not locked)\b\s*(?:·\s*(.*))?$/i.exec(line);
+      const status = /^(.+?)\s+[—–-]\s+(locked|not locked|closed|not closed)\b\s*(?:·\s*(.*))?$/i.exec(line);
       if ((tag === 'locked' || tag === 'open') && status) {
         const counts = {};
         for (const m of (status[3] ?? '').matchAll(/(\d+)\s+(bad|watch|good)/gi)) counts[m[2].toLowerCase()] = Number(m[1]);
-        blocks.push({ kind: 'status', org: status[1], locked: /^locked$/i.test(status[2]), counts });
+        blocks.push({ kind: 'status', org: status[1], locked: /^(locked|closed)$/i.test(status[2]), counts });
       } else {
         blocks.push({ kind: 'item', tag, text: line });
       }
@@ -1369,7 +1193,7 @@ function AgentReply({ text }) {
               </span>
               <span className="reply-status-counts">
                 {shown.map((t) => <Tally key={t} tone={t} n={b.counts[t]} />)}
-                {!b.locked && <span className="reply-status-lock">Not locked</span>}
+                {!b.locked && <span className="reply-status-lock">Not closed</span>}
               </span>
             </div>
           );
@@ -1674,79 +1498,18 @@ function TodayBoard({
   quarterlyKpis,
 }) {
   const allDone = todayTotal > 0 && todayDone >= todayTotal;
-  const unsetCount = visibleKpis.filter((k) => k.target == null).length;
 
-  // Owner: one job only — type goals and save. No "today numbers" clutter.
+  // Owner: one job only — a step-by-step goal setter plus a list of every goal.
   if (canEditKpis) {
-    const cadenceBlocks = [];
-    if (dailyKpis.length) cadenceBlocks.push({ title: 'Daily', kpis: dailyKpis });
-    if (weeklyKpis.length) cadenceBlocks.push({ title: 'Weekly', kpis: weeklyKpis });
-    if (monthlyKpis.length) cadenceBlocks.push({ title: 'Monthly', kpis: monthlyKpis });
-    if (quarterlyKpis.length) cadenceBlocks.push({ title: 'Quarterly', kpis: quarterlyKpis });
-
-    const cadenceSummary = [
-      dailyKpis.length ? `${dailyKpis.length} daily` : null,
-      weeklyKpis.length ? `${weeklyKpis.length} weekly` : null,
-      monthlyKpis.length ? `${monthlyKpis.length} monthly` : null,
-      quarterlyKpis.length ? `${quarterlyKpis.length} quarterly` : null,
-    ].filter(Boolean).join(' · ');
-
     return (
-      <div className="today owner-today">
-        <div className="stage-head">
-          <div>
-            <h1>Set goals</h1>
-            <p>{activeOrg?.short_name} · goals apply to the KPI register for this org</p>
-          </div>
-          <div className="today-progress-meta">
-            <strong>{visibleKpis.length - unsetCount}/{visibleKpis.length || '—'}</strong>
-            <span>goals set</span>
-          </div>
-        </div>
-
-        <div className={`owner-howto${unsetCount ? ' needs-work' : ''}`}>
-          <p className="owner-register-note">
-            <b>{visibleKpis.length}</b> measures on the register
-            {cadenceSummary ? <> ({cadenceSummary})</> : null}.
-            {' '}Monthly shows only KPIs marked <em>Every month</em> in the register — not “everything you do each month.”
-          </p>
-          <ol>
-            <li>Type a <b>goal</b> in each box (what “good” looks like).</li>
-            <li>Click <b>Save goals</b> on each block.</li>
-            <li>Need something new? Use <b>Add measure</b> below (still goes on the register).</li>
-          </ol>
-          {unsetCount > 0 && (
-            <p className="owner-howto-warn">{unsetCount} measures still have no goal.</p>
-          )}
-        </div>
-
-        <OwnerAddMeasure
-          orgSlug={orgSlug}
-          session={session}
-          api={api}
-          setError={setError}
-          onAdded={reloadOrgBits}
-        />
-
-        <div className="owner-cadence-stack">
-          {cadenceBlocks.map((block, i) => (
-            <OwnerGoalSetter
-              key={block.title}
-              title={`${i + 1}. ${block.title} goals`}
-              hint={`${block.kpis.length} measure${block.kpis.length === 1 ? '' : 's'} · cadence: Every ${block.title.toLowerCase()}`}
-              kpis={block.kpis}
-              emphasize={i === 0}
-              session={session}
-              api={api}
-              setError={setError}
-              onSaved={reloadOrgBits}
-            />
-          ))}
-          {cadenceBlocks.length === 0 && (
-            <div className="today-empty">No measures yet. Add one above, or use the KPIs tab.</div>
-          )}
-        </div>
-      </div>
+      <GoalSetter
+        activeOrg={activeOrg}
+        kpis={visibleKpis}
+        session={session}
+        api={api}
+        setError={setError}
+        onSaved={reloadOrgBits}
+      />
     );
   }
 
@@ -1935,17 +1698,17 @@ function TodayBoard({
       {canLock && (
         <div className="today-lock">
           <div>
-            <h2>Lock the day</h2>
+            <h2>Close the day</h2>
             <p className="muted-line">
               {waitingReview.length
                 ? `${waitingReview.length} still waiting for accept/reject.`
                 : allDone
-                  ? 'Ready to lock accepted numbers for today.'
-                  : 'You can lock once accepted numbers are in.'}
+                  ? 'Ready to close the day with the accepted numbers.'
+                  : 'You can close the day once accepted numbers are in.'}
             </p>
           </div>
           <button className="primary" type="button" onClick={signoff}>
-            Lock the day
+            Close the day
           </button>
         </div>
       )}
@@ -2001,192 +1764,6 @@ function PendingKpiRow({ kpi, onSubmit }) {
         </button>
       </form>
     </li>
-  );
-}
-
-function OwnerAddMeasure({ orgSlug, session, api, setError, onAdded }) {
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    name: '',
-    how_often: 'Every week',
-    unit: 'count',
-    target: '',
-  });
-  const [busy, setBusy] = useState(false);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!form.name.trim()) return;
-    setBusy(true);
-    setError('');
-    try {
-      const code = slugifyMeasureCode(orgSlug, form.name);
-      const body = {
-        code,
-        name: form.name.trim(),
-        unit: form.unit || 'count',
-        how_often: form.how_often,
-        target: form.target === '' ? null : Number(form.target),
-      };
-      await api(`/orgs/${orgSlug}/kpis`, session.token, { method: 'POST', body: JSON.stringify(body) });
-      setForm({ name: '', how_often: 'Every week', unit: 'count', target: '' });
-      setOpen(false);
-      await onAdded?.();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="owner-add-measure">
-      {!open ? (
-        <button className="soft" type="button" onClick={() => setOpen(true)}>
-          + Add measure to register
-        </button>
-      ) : (
-        <form className="owner-add-form" onSubmit={submit}>
-          <div className="today-section-head">
-            <h2>Add measure</h2>
-            <button className="quiet" type="button" onClick={() => setOpen(false)}>Cancel</button>
-          </div>
-          <p className="muted-line">Creates a new line on the KPI register for this org (same as KPIs → Add KPI).</p>
-          <div className="owner-add-fields">
-            <label>
-              Name
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                placeholder="e.g. Newsletter opens"
-                required
-              />
-            </label>
-            <label>
-              How often
-              <select value={form.how_often} onChange={(e) => setForm({ ...form, how_often: e.target.value })}>
-                {HOW_OFTEN_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </label>
-            <label>
-              Unit
-              <input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            </label>
-            <label>
-              Goal (optional)
-              <input type="number" step="any" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
-            </label>
-          </div>
-          <button className="primary" type="submit" disabled={busy}>
-            {busy ? 'Adding…' : 'Add to register'}
-          </button>
-        </form>
-      )}
-    </div>
-  );
-}
-
-function OwnerGoalSetter({
-  title,
-  hint,
-  kpis,
-  emphasize = false,
-  session,
-  api,
-  setError,
-  onSaved,
-}) {
-  const [drafts, setDrafts] = useState({});
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    const next = {};
-    for (const k of kpis) next[k.id] = k.target == null ? '' : String(k.target);
-    setDrafts(next);
-    setSaved(false);
-  }, [kpis]);
-
-  const missing = kpis.filter((k) => k.target == null).length;
-
-  async function saveAll(e) {
-    e.preventDefault();
-    setBusy(true);
-    setSaved(false);
-    setError('');
-    try {
-      const jobs = [];
-      for (const k of kpis) {
-        const raw = drafts[k.id];
-        if (raw === '' || raw == null) continue;
-        const target = Number(raw);
-        if (!Number.isFinite(target)) {
-          throw new Error(`“${k.name}” needs a valid number.`);
-        }
-        if (k.target != null && Number(k.target) === target) continue;
-        jobs.push(
-          api('/kpis/target', session.token, {
-            method: 'POST',
-            body: JSON.stringify({ kpi_code: k.code, target }),
-          }),
-        );
-      }
-      await Promise.all(jobs);
-      setSaved(true);
-      await onSaved?.();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form
-      className={`owner-goal-card${emphasize ? ' is-primary' : ''}`}
-      onSubmit={saveAll}
-    >
-      <div className="today-section-head">
-        <h2>{title}</h2>
-        <span>{missing ? `${missing} unset` : `${kpis.length} set`}</span>
-      </div>
-      {hint && <p className="muted-line">{hint}</p>}
-      {kpis.length === 0 ? (
-        <div className="today-empty">No measures in this cadence.</div>
-      ) : (
-        <ul className="owner-goal-list">
-          {kpis.map((k) => (
-            <li key={k.id} className={`owner-goal-row${k.target == null ? ' is-missing' : ''}`}>
-              <div className="owner-goal-copy">
-                <b>{k.name}</b>
-                <span>{k.how_often}{k.owner_name ? ` · ${k.owner_name}` : ''}</span>
-              </div>
-              <label className="owner-goal-field">
-                <span>Goal</span>
-                <div className="owner-goal-input-wrap">
-                  <input
-                    type="number"
-                    step="any"
-                    value={drafts[k.id] ?? ''}
-                    placeholder="—"
-                    onChange={(e) => setDrafts((prev) => ({ ...prev, [k.id]: e.target.value }))}
-                  />
-                  <em>{k.unit || ''}</em>
-                </div>
-              </label>
-            </li>
-          ))}
-        </ul>
-      )}
-      {kpis.length > 0 && (
-        <div className="owner-goal-actions">
-          <button className="primary" type="submit" disabled={busy}>
-            {busy ? 'Saving…' : 'Save goals'}
-          </button>
-          {saved && <span className="tag ok">Saved</span>}
-        </div>
-      )}
-    </form>
   );
 }
 
@@ -2346,21 +1923,20 @@ function WhatsAppSettingsPanel({ session, api, setError }) {
   }
 
   return (
-  <>
-    <div className="stage-head">
-      <div>
-        <h1>Settings</h1>
-        <p>Link WhatsApp so registered numbers can talk to the portfolio agent.</p>
-      </div>
-      <button className="quiet" type="button" onClick={refresh} disabled={busy}>Refresh</button>
-    </div>
+    <div className="settings-page">
+      <header className="settings-head">
+        <div>
+          <h1>Settings</h1>
+          <p>Link WhatsApp so registered numbers can talk to the portfolio agent.</p>
+        </div>
+        <button className="quiet" type="button" onClick={refresh} disabled={busy}>Refresh</button>
+      </header>
 
-    <section className="wa-settings">
-      <div className="wa-card">
-        <div className="wa-card-head">
+      <section className="settings-block">
+        <div className="settings-block-head">
           <h2>WhatsApp</h2>
           {info && (
-            <span className={`tag ${info.connected ? 'ok' : info.configured && !info.sidecar_error ? 'warn' : 'warn'}`}>
+            <span className={`tag ${info.connected ? 'ok' : 'warn'}`}>
               {whatsappStateLabel(info)}
             </span>
           )}
@@ -2382,42 +1958,42 @@ function WhatsAppSettingsPanel({ session, api, setError }) {
 
         {info?.configured && (
           <>
-            <p className="muted wa-lead">{info.message}</p>
-            {info.qr_image && !info.connected && (
-              <div className="wa-qr-wrap">
-                <img src={info.qr_image} alt="WhatsApp QR code" className="wa-qr" width={280} height={280} />
-                <p className="muted">QR refreshes every few seconds — keep this page open while scanning.</p>
+            <p className="settings-lead">{info.message}</p>
+            <div className="settings-link">
+              <div className="settings-qr">
+                {info.qr_image && !info.connected ? (
+                  <>
+                    <img src={info.qr_image} alt="WhatsApp QR code" width={220} height={220} />
+                    <p>The code refreshes every few seconds. Keep this page open while you scan.</p>
+                  </>
+                ) : info.connected && info.owner_jid ? (
+                  <p className="settings-linked">Linked as {info.owner_jid.replace(/@.*/, '')}</p>
+                ) : (
+                  <p>Generate a code, then scan it from the phone that will host the bot.</p>
+                )}
+                {!info.connected && (
+                  <button className="primary" type="button" onClick={startLink} disabled={busy}>
+                    {busy ? 'Starting…' : 'Generate QR'}
+                  </button>
+                )}
               </div>
-            )}
-            {info.connected && info.owner_jid && (
-              <p className="wa-linked"><strong>Linked:</strong> {info.owner_jid.replace(/@.*/, '')}</p>
-            )}
-            <div className="wa-meta">
-              <div><span className="wa-meta-k">Registered phones</span><span>{info.registered_phones ?? '—'}</span></div>
-              <div><span className="wa-meta-k">Sidecar</span><span>{info.sidecar_url}</span></div>
-              <div><span className="wa-meta-k">Portfolio gateway</span><span>{info.gateway_url}</span></div>
-              <div><span className="wa-meta-k">Connector</span><span><code>{info.connector_id}</code></span></div>
+              <ol className="settings-steps">
+                <li>Save your number under Team, or as the owner phone on this account.</li>
+                <li>On the host phone, open WhatsApp, then Linked devices, then Link a device, and scan the code.</li>
+                <li>Include @ so the agent runs. For example, “@ list KPIs for TMS”.</li>
+              </ol>
             </div>
-            {!info.connected && (
-              <button className="primary" type="button" onClick={startLink} disabled={busy}>
-                {busy ? 'Starting…' : 'Generate QR'}
-              </button>
-            )}
+            <dl className="settings-facts">
+              <div><dt>Registered phones</dt><dd>{info.registered_phones ?? '—'}</dd></div>
+              <div><dt>Sidecar</dt><dd>{info.sidecar_url || '—'}</dd></div>
+              <div><dt>Portfolio gateway</dt><dd>{info.gateway_url || '—'}</dd></div>
+              <div><dt>Connector</dt><dd><code>{info.connector_id || '—'}</code></dd></div>
+            </dl>
             {info.sidecar_error && <p className="err">{info.sidecar_error}</p>}
           </>
         )}
-      </div>
-
-      <div className="wa-card">
-        <h2>Try on WhatsApp</h2>
-        <ol className="wa-steps">
-          <li>Save your number under <strong>Team</strong> (or the owner phone on this account).</li>
-          <li>Scan the QR above with the phone that will host the bot (Linked devices).</li>
-          <li>Include <strong>@</strong> in the message so the agent runs, e.g. <q>@ list KPIs for TMS</q> (Message yourself or a registered contact chat).</li>
-        </ol>
-      </div>
-    </section>
-  </>
+      </section>
+    </div>
   );
 }
 

@@ -1,11 +1,17 @@
 #!/bin/sh
 set -eu
 
+export ADMIN_DATABASE_URL="${ADMIN_DATABASE_URL:-postgresql://portfolio:portfolio@postgres:5432/portfolio_os}"
+MIGRATOR_PASSWORD="${MIGRATOR_DB_PASSWORD:-portfolio_migrator}"
+APP_PASSWORD="${APP_DB_PASSWORD:-portfolio_app}"
+export MIGRATION_DATABASE_URL="${MIGRATION_DATABASE_URL:-postgresql://portfolio_migrator:${MIGRATOR_PASSWORD}@postgres:5432/portfolio_os}"
+export DATABASE_URL="${DATABASE_URL:-postgresql://portfolio_app:${APP_PASSWORD}@postgres:5432/portfolio_os}"
+
 echo "[portfolio] waiting for database…"
 i=0
 until node -e "
 const pg=require('pg');
-const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+const c=new pg.Client({connectionString:process.env.ADMIN_DATABASE_URL});
 c.connect().then(()=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1));
 " 2>/dev/null; do
   i=$((i + 1))
@@ -16,6 +22,12 @@ c.connect().then(()=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1
   sleep 1
 done
 echo "[portfolio] database ready"
+
+echo "[portfolio] roles (portfolio_migrator / portfolio_app)…"
+ADMIN_DATABASE_URL="$ADMIN_DATABASE_URL" MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD" APP_PASSWORD="$APP_PASSWORD" \
+  node packages/db/scripts/bootstrap.js --adopt-from portfolio || true
+ADMIN_DATABASE_URL="$ADMIN_DATABASE_URL" MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD" APP_PASSWORD="$APP_PASSWORD" \
+  node packages/db/scripts/bootstrap.js
 
 # Inside Docker, localhost is the container — Qlix runs on the host.
 case "${QLIX_BACKEND_URL:-}" in
@@ -28,11 +40,13 @@ esac
 
 echo "[portfolio] migrating…"
 npm run migrate -w @portfolio-os/db
+ADMIN_DATABASE_URL="$ADMIN_DATABASE_URL" MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD" APP_PASSWORD="$APP_PASSWORD" \
+  node packages/db/scripts/bootstrap.js
 
 if [ "${SEED_ON_START:-0}" = "1" ]; then
   count="$(node -e "
 const pg=require('pg');
-const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+const c=new pg.Client({connectionString:process.env.MIGRATION_DATABASE_URL || process.env.DATABASE_URL});
 c.connect().then(()=>c.query('SELECT count(*)::int AS n FROM organisations'))
   .then(r=>{console.log(r.rows[0].n);return c.end();})
   .catch(()=>{console.log(0);process.exit(0);});
@@ -46,11 +60,8 @@ c.connect().then(()=>c.query('SELECT count(*)::int AS n FROM organisations'))
 fi
 
 if [ -n "${DEMO_PASSWORD:-}" ]; then
-  node -e "
-const pg=require('pg');const c=new pg.Client({connectionString:process.env.DATABASE_URL});
-c.connect().then(()=>c.query(\"UPDATE users SET password_hash=encode(digest('portfolio-os:'||\$1,'sha256'),'hex') WHERE password_hash=encode(digest('portfolio-os:password123','sha256'),'hex')\",[process.env.DEMO_PASSWORD]))
- .then(r=>{console.log('[portfolio] demo logins updated:',r.rowCount);return c.end();}).catch(e=>{console.error(e.message);process.exit(0);});
-"
+  # scrypt hashes (docs/BUILD.md § 4.8); replaces only accounts still on the seeded password
+  node packages/db/scripts/set-demo-password.js || true
 fi
 
 if [ -z "${WA_CONNECTOR_ID:-}" ]; then

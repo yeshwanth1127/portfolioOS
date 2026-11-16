@@ -1,16 +1,25 @@
-import { hashPassword } from '../auth.js';
-import { ROLE, assignableRolesFor, isOwner, managesOrg, roleLabel } from '../roles.js';
+import { hashPassword } from '../core/passwords.js';
+import { can } from '../core/permissions/can.js';
+import { permissionDenied } from '../core/permissions/permission-denied.js';
+import { ROLE, assignableRolesFor, isOwner, roleLabel } from '../roles.js';
+import { deactivateAssignment, upsertAssignmentFromMembership } from './assignment-sync.js';
 import { dbQuery } from './db-helpers.js';
 import { loadOrgFor } from './org-access.js';
 
 export async function addPerson(client, membership, orgSlug, body) {
   const loaded = await loadOrgFor(client, membership, orgSlug);
   if (loaded.error) return loaded;
-  if (!managesOrg(membership, loaded.org)) {
-    return { error: { code: 'forbidden', message: 'Only the manager or Thyagu can add a person.' } };
+  if (!can(membership, 'person.manage', { org: loaded.org })) {
+    return permissionDenied(membership, 'person.manage');
   }
   const { full_name, email, title, role, phone_e164, parent_id } = body ?? {};
   if (!full_name || !email) return { error: { code: 'invalid', message: 'Name and email are required.' } };
+  // No shared default password: a new person signs in only once a password is set for them
+  // (invitations replace this in Phase 3).
+  const initialPassword = body?.password ? String(body.password) : null;
+  if (initialPassword && initialPassword.length < 8) {
+    return { error: { code: 'invalid', message: 'A password needs at least 8 characters.' } };
+  }
   const allowedRoles = assignableRolesFor(membership);
   if (role && !allowedRoles.includes(role)) {
     return {
@@ -80,15 +89,21 @@ export async function addPerson(client, membership, orgSlug, body) {
     client,
     `INSERT INTO users (full_name, email, password_hash, is_named, phone_e164)
      VALUES ($1,$2,$3,true,$4) RETURNING id`,
-    [full_name, email, hashPassword('password123'), phone_e164 || null],
+    [full_name, email, initialPassword ? await hashPassword(initialPassword) : null, phone_e164 || null],
+  );
+  await dbQuery(
+    client,
+    `INSERT INTO workspace_members (user_id, workspace_role) VALUES ($1, 'member') ON CONFLICT DO NOTHING`,
+    [users[0].id],
   );
   const { rows: created } = await dbQuery(
     client,
-    `INSERT INTO memberships (user_id, org_id, role, title, parent_id, state)
-     VALUES ($1,$2,$3,$4,$5,'active') RETURNING id`,
-    [users[0].id, loaded.org.id, safeRole, title || roleLabel(safeRole), parentId],
+    `INSERT INTO memberships (user_id, org_id, role, title, parent_id, state, workspace_id)
+     VALUES ($1,$2,$3,$4,$5,'active',$6) RETURNING *`,
+    [users[0].id, loaded.org.id, safeRole, title || roleLabel(safeRole), parentId, membership.workspace_id],
   );
-  return { id: created[0].id, ok: true };
+  await upsertAssignmentFromMembership(client, created[0]);
+  return { id: created[0].id, ok: true, can_sign_in: Boolean(initialPassword) };
 }
 
 export async function updatePerson(client, membership, personId, body) {
@@ -101,8 +116,8 @@ export async function updatePerson(client, membership, personId, body) {
   if (!person) return { error: { code: 'not_found', message: 'Person not found' } };
   const loaded = await loadOrgFor(client, membership, person.slug);
   if (loaded.error) return loaded;
-  if (!managesOrg(membership, loaded.org)) {
-    return { error: { code: 'forbidden', message: 'Only the manager or Thyagu can edit a person.' } };
+  if (!can(membership, 'person.manage', { org: loaded.org })) {
+    return permissionDenied(membership, 'person.manage');
   }
   const { full_name, title, phone_e164, role, parent_id } = body ?? {};
   if (phone_e164 !== undefined) {
@@ -162,6 +177,8 @@ export async function updatePerson(client, membership, personId, body) {
       person.id,
     ]);
   }
+  const { rows: fresh } = await dbQuery(client, `SELECT * FROM memberships WHERE id = $1`, [person.id]);
+  if (fresh[0]) await upsertAssignmentFromMembership(client, fresh[0]);
   return { ok: true };
 }
 
@@ -175,12 +192,13 @@ export async function removePerson(client, membership, personId) {
   if (!person) return { error: { code: 'not_found', message: 'Person not found' } };
   const loaded = await loadOrgFor(client, membership, person.slug);
   if (loaded.error) return loaded;
-  if (!managesOrg(membership, loaded.org)) {
-    return { error: { code: 'forbidden', message: 'Only the manager or Thyagu can remove a person.' } };
+  if (!can(membership, 'person.manage', { org: loaded.org })) {
+    return permissionDenied(membership, 'person.manage');
   }
   if (person.id === membership.id) {
     return { error: { code: 'invalid', message: 'You cannot remove yourself.' } };
   }
   await dbQuery(client, `UPDATE memberships SET state = 'inactive' WHERE id = $1`, [person.id]);
+  await deactivateAssignment(client, person.id);
   return { ok: true };
 }

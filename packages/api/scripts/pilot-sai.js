@@ -22,7 +22,7 @@ async function api(method, path, token, body) {
 }
 
 async function main() {
-  const period = new Date().toISOString().slice(0, 10);
+  const period = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
 
   const lead = await api('POST', '/auth/login', null, {
     email: 'nagaraj@portfolio.local',

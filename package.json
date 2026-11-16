@@ -7,8 +7,10 @@
     "services/*"
   ],
   "scripts": {
+    "test": "node tests/run.js",
     "db:migrate": "npm run migrate -w @portfolio-os/db",
     "db:seed": "npm run seed -w @portfolio-os/db",
+    "db:simulate": "node --env-file-if-exists=.env packages/db/scripts/simulate.js",
     "api:dev": "npm run dev -w @portfolio-os/api",
     "web:dev": "npm run dev -w @portfolio-os/web",
     "wa:dev": "npm run dev -w @portfolio-os/wa-gateway",
@@ -20,5 +22,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "pg": "^8.13.1"
   }
 }

@@ -1,27 +1,16 @@
-import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { query } from './db.js';
+import { config } from './core/config.js';
 
-const JWT_SECRET = process.env.JWT_SECRET ?? 'dev-portfolio-os-secret-change-in-prod';
+const JWT_SECRET = config.jwtSecret;
 
-export function hashPassword(plain) {
-  return crypto.createHash('sha256').update(`portfolio-os:${plain}`).digest('hex');
-}
-
+/**
+ * The caller behind a membership id (token, run token, test). Runs before any scope exists,
+ * through the auth.actor_for_membership definer function (migration 008).
+ */
 export async function loadMembership(membershipId) {
-  const { rows } = await query(
-    `SELECT m.id, m.role, m.org_id, m.user_id, m.title, m.state, m.parent_id,
-            u.full_name, u.email, u.phone_e164, u.is_named,
-            o.slug AS org_slug, o.short_name AS org_short_name, o.name AS org_name,
-            pu.full_name AS reports_to_name, pm.role AS reports_to_role, pm.title AS reports_to_title
-     FROM memberships m
-     JOIN users u ON u.id = m.user_id
-     LEFT JOIN organisations o ON o.id = m.org_id
-     LEFT JOIN memberships pm ON pm.id = m.parent_id
-     LEFT JOIN users pu ON pu.id = pm.user_id
-     WHERE m.id = $1 AND m.state <> 'inactive'`,
-    [membershipId],
-  );
+  if (!/^[0-9a-f-]{36}$/i.test(String(membershipId ?? ''))) return null;
+  const { rows } = await query(`SELECT * FROM auth.actor_for_membership($1)`, [membershipId]);
   return rows[0] ?? null;
 }
 
@@ -29,6 +18,7 @@ export function signToken(membership) {
   return jwt.sign(
     {
       membership_id: membership.id,
+      workspace_id: membership.workspace_id,
       role: membership.role,
       org_id: membership.org_id,
     },
@@ -37,14 +27,24 @@ export function signToken(membership) {
   );
 }
 
-export function signRunToken(membership, agentId) {
+/**
+ * Agent run token. `extra` carries run-scoped claims such as { profile: 'report', report_id } or
+ * { profile: 'meeting', meeting_id, transcript_part }.
+ */
+export function signRunToken(membership, agentId, extra = {}) {
   return jwt.sign(
     {
       kind: 'agent_run',
       membership_id: membership.id,
+      workspace_id: membership.workspace_id,
       role: membership.role,
       org_id: membership.org_id,
       agent_id: agentId,
+      ...(extra.profile ? { profile: extra.profile } : {}),
+      ...(extra.report_id ? { report_id: extra.report_id } : {}),
+      ...(extra.meeting_id ? { meeting_id: extra.meeting_id } : {}),
+      ...(Number.isInteger(extra.transcript_part) ? { transcript_part: extra.transcript_part } : {}),
+      ...(extra.channel ? { channel: extra.channel } : {}),
     },
     JWT_SECRET,
     { expiresIn: '15m' },
@@ -65,6 +65,8 @@ export async function authenticateRequest(req) {
     if (payload.org_id && membership.org_id && payload.org_id !== membership.org_id) {
       return null;
     }
+    // A token is bound to one workspace; a moved or removed membership invalidates it.
+    if (payload.workspace_id !== membership.workspace_id) return null;
     return { membership, payload };
   } catch {
     return null;

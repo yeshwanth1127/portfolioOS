@@ -25,7 +25,8 @@ sleep 2
 
 npm run test:pilot
 
-echo "Optional WhatsApp simulation (owner readiness query):"
-curl -s -X POST http://localhost:3938/inbound \
+echo "Optional WhatsApp simulation (owner self-chat, as the sidecar would send it):"
+curl -s -X POST http://localhost:3938/api/v1/whatsapp/inbound \
   -H 'Content-Type: application/json' \
-  -d '{"phone_e164":"+919999000001","text":"readiness"}' || true
+  -H "X-Service-Secret: ${WA_SERVICE_SECRET:-${AGENT_RUNNER_SECRET:-dev-runner-secret}}" \
+  -d '{"text":"@ readiness"}' || true

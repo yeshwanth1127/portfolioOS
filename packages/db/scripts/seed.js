@@ -1,8 +1,12 @@
 import pg from 'pg';
+import { hashPassword } from '../../api/src/core/passwords.js';
 import { KPI_DEFS } from '../data/kpis.js';
 
+// Seeding truncates tables, so it runs as the schema owner (docs/BUILD.md § 4.12).
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? 'postgresql://portfolio:portfolio@localhost:5432/portfolio_os';
+  process.env.MIGRATION_DATABASE_URL ??
+  process.env.DATABASE_URL ??
+  'postgresql://portfolio:portfolio@localhost:5432/portfolio_os';
 
 const ORGS = [
   { slug: 'tms', name: 'Track My Services', short_name: 'TMS', sector: 'Operational Technology', descriptor: 'Operational Resource Planning platform', positioning: "India's first Operational Resource Planning platform", is_department: false },
@@ -14,7 +18,7 @@ const ORGS = [
   { slug: 'scale', name: 'Sona Centre of Advanced Learning & Entrepreneurship', short_name: 'SCALE', sector: 'Advanced Learning', descriptor: 'Industry-led learning and entrepreneurship', positioning: 'Designed by the industry, for the industry', is_department: false },
 ];
 
-const DEFAULT_PASSWORD = 'password123';
+const DEFAULT_PASSWORD = process.env.DEMO_PASSWORD || 'password123';
 
 const USERS = [
   { key: 'u_owner', full_name: 'Thyagu Sir', email: 'owner@portfolio.local', is_named: true, password: DEFAULT_PASSWORD },
@@ -88,11 +92,6 @@ const MEMBERSHIPS = [
   { key: 'm_scale_6', userKey: 'u_scale_6', orgSlug: 'scale', role: 'member', title: 'Associate', parentKey: 'm_scale_vl', state: 'pending_name' },
 ];
 
-async function hashPassword(plain) {
-  const { createHash } = await import('crypto');
-  return createHash('sha256').update(`portfolio-os:${plain}`).digest('hex');
-}
-
 function orgPrefix(code) {
   return code.split('.')[0];
 }
@@ -108,8 +107,16 @@ async function main() {
         agent_pending_confirms, amendments, scores, signoffs, submissions,
         activity_entries, kpi_audit, kpis, revenue_lines, escalations,
         org_links, partnerships, case_studies, profile_sections,
-        memberships, users, organisations CASCADE;
+        memberships, org_periods, whatsapp_connections, workspace_members, workspaces,
+        users, organisations CASCADE;
     `);
+
+    // Everything below belongs to the Sona workspace (workspace_id columns default to this setting).
+    const { rows: wsRows } = await client.query(
+      `INSERT INTO workspaces (name, slug) VALUES ('Sona Group', 'sona') RETURNING id`,
+    );
+    const workspaceId = wsRows[0].id;
+    await client.query(`SELECT set_config('app.workspace_id', $1, true)`, [workspaceId]);
 
     const orgIds = {};
     for (const o of ORGS) {
@@ -122,14 +129,20 @@ async function main() {
     }
 
     const userIds = {};
+    const hashes = new Map();
     for (const u of USERS) {
-      const pw = await hashPassword(u.password);
+      if (!hashes.has(u.password)) hashes.set(u.password, await hashPassword(u.password));
+      const pw = hashes.get(u.password);
       const { rows } = await client.query(
         `INSERT INTO users (full_name, email, password_hash, is_named)
          VALUES ($1,$2,$3,$4) RETURNING id`,
         [u.full_name, u.email, pw, u.is_named],
       );
       userIds[u.key] = rows[0].id;
+      await client.query(
+        `INSERT INTO workspace_members (workspace_id, user_id, workspace_role) VALUES ($1,$2,$3)`,
+        [workspaceId, rows[0].id, u.key === 'u_owner' ? 'owner' : 'member'],
+      );
     }
 
     const membershipIds = {};
@@ -245,6 +258,7 @@ async function main() {
     await client.query(
       `INSERT INTO kpi_goals (kpi_id, how_often, target) SELECT id, how_often, target FROM kpis ON CONFLICT DO NOTHING`,
     );
+    await client.query(`SELECT auth.sync_units_from_legacy()`);
     await client.query('COMMIT');
     console.log(`Seeded ${ORGS.length} orgs, ${USERS.length} users, ${MEMBERSHIPS.length} memberships, ${KPI_DEFS.length} KPIs.`);
   } catch (e) {

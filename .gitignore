@@ -13,3 +13,9 @@ apps/web/.next-share/
 !.env.server.example
 __pycache__/
 .DS_Store
+.venv/
+apps/web/.next-*/
+
+# Local run logs and Playwright output
+portfolio-docker-log.txt
+apps/web/test-results/

@@ -30,10 +30,6 @@ export function managesOrg(membership, org) {
   return membership.role === ROLE.MANAGER || membership.role === ROLE.VICE_MANAGER;
 }
 
-export function canAssignKpiOwner(membership, org) {
-  return managesOrg(membership, org);
-}
-
 export function canReviewSubmissions(membership) {
   return [
     ROLE.OWNER,

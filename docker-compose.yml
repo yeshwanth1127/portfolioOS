@@ -1,7 +1,8 @@
 # One-command PortfolioOS stack.
 # From sona-ecosystem/:  docker compose up --build
 #
-# Runs Postgres + one app container (API, web, agent-runner, WA gateway, WhatsApp sidecar).
+# Runs Postgres + one app container (API, web, agent-runner, WA gateway, WhatsApp sidecar)
+# + the meetings container (LiveKit media server; docs/MEETINGS.md).
 # Qlix inference (backend-adk :4000) stays on the host or another compose — set QLIX_* below.
 
 services:
@@ -32,14 +33,28 @@ services:
       - "127.0.0.1:3939:3939"
       - "127.0.0.1:3940:3940"
     environment:
-      DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio_os
+      NODE_ENV: production
+      ADMIN_DATABASE_URL: postgresql://portfolio:portfolio@postgres:5432/portfolio_os
+      MIGRATOR_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD:-portfolio_migrator}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-portfolio_app}
+      MIGRATION_DATABASE_URL: postgresql://portfolio_migrator:${MIGRATOR_DB_PASSWORD:-portfolio_migrator}@postgres:5432/portfolio_os
+      DATABASE_URL: postgresql://portfolio_app:${APP_DB_PASSWORD:-portfolio_app}@postgres:5432/portfolio_os
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       AGENT_RUNNER_SECRET: ${AGENT_RUNNER_SECRET:?set AGENT_RUNNER_SECRET in .env}
       AGENT_RUNNER_URL: http://127.0.0.1:3940
       PORTFOLIOOS_API_URL: http://127.0.0.1:4001
       DEMO_PASSWORD: ${DEMO_PASSWORD:-}
-      # Reach Qlix on the host machine (Mac/Windows Docker Desktop).
-      QLIX_BACKEND_URL: ${QLIX_BACKEND_URL:-http://host.docker.internal:4000}
+      # Qlix backend container on the shared `exora` network. Override for a host-run API.
+      QLIX_BACKEND_URL: ${QLIX_BACKEND_URL:-http://backend:4000}
+      # Per-workspace Qlix orgs + agents (partner API). Secrets encrypt stored Qlix credentials.
+      QLIX_PARTNER_KEY: ${QLIX_PARTNER_KEY:-}
+      # whsec_… from Qlix; Qlix posts signed events to http://portfolio:4001/qlix/webhook.
+      QLIX_WEBHOOK_SECRET: ${QLIX_WEBHOOK_SECRET:-}
+      QLIX_SECRETS_KEY: ${QLIX_SECRETS_KEY:-}
+      QLIX_CONSOLE_URL: ${QLIX_CONSOLE_URL:-}
+      QLIX_AGENT_MODEL: ${QLIX_AGENT_MODEL:-}
+      # Migration only: workspaces without their own Qlix agent use this shared one.
+      QLIX_LEGACY_AGENT_FALLBACK: ${QLIX_LEGACY_AGENT_FALLBACK:-0}
       QLIX_AGENT_ID: ${QLIX_AGENT_ID:-}
       QLIX_RUNNER_TOKEN: ${QLIX_RUNNER_TOKEN:-}
       WA_CONNECTOR_ID: ${WA_CONNECTOR_ID:-}
@@ -48,15 +63,57 @@ services:
       WHATSAPP_AUTH_ENCRYPTION_KEY: ${WHATSAPP_AUTH_ENCRYPTION_KEY:-}
       WHATSAPP_SKIP_LOCAL_APPROVALS: "1"
       SEED_ON_START: ${SEED_ON_START:-1}
+      # Meetings: the API signs LiveKit tokens and closes rooms; browsers connect to the public URL.
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-orbit}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}   # openssl rand -hex 32; without it Meetings stay off
+      LIVEKIT_URL: http://meetings:7880
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://localhost:7880}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - wa_auth:/var/lib/qlix-whatsapp
+    networks:
+      - default
+      - exora
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
+  # Meetings: LiveKit media server + the Qlix Meeting Assistant's bot (docs/MEETINGS.md).
+  meetings:
+    build:
+      context: .
+      dockerfile: docker/meetings/Dockerfile
+    ports:
+      - "127.0.0.1:7880:7880"   # signalling: nginx serves it publicly as wss://<domain>/lk
+      - "7881:7881"             # media over TCP (fallback for networks that block UDP)
+      - "7882:7882/udp"         # media over UDP (single-port mux)
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-orbit}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}   # openssl rand -hex 32; without it Meetings stay off
+      LIVEKIT_WEBHOOK_URL: ${LIVEKIT_WEBHOOK_URL:-http://portfolio:4001/livekit/webhook}
+      # Laptop: advertise 127.0.0.1. Server: leave unset and use_external_ip discovers the public IP.
+      LIVEKIT_NODE_IP: ${LIVEKIT_NODE_IP:-}
+      LIVEKIT_USE_EXTERNAL_IP: ${LIVEKIT_USE_EXTERNAL_IP:-true}
+      # Meeting bot: posts transcripts to the API; speech-to-text is Qlix's whisper-server.
+      MEETING_BOT_AUTOSTART: ${MEETING_BOT_AUTOSTART:-true}
+      PORTFOLIOOS_API_URL: http://portfolio:4001
+      AGENT_RUNNER_URL: http://portfolio:3940
+      AGENT_RUNNER_SECRET: ${AGENT_RUNNER_SECRET:-}
+      QLIX_STT_URL: ${QLIX_STT_URL:-http://host.docker.internal:8178}
+      QLIX_STT_LANGUAGE: ${QLIX_STT_LANGUAGE:-en}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - exora
+    restart: unless-stopped
+
 volumes:
   portfolio_pg:
   wa_auth:
+
+networks:
+  exora:
+    name: exora

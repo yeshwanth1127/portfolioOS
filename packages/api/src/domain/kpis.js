@@ -1,7 +1,9 @@
 import { normalizeHowOften, HOW_OFTEN_DEFAULT } from '../how-often.js';
 import { CADENCES, baseCadence, cadenceRank } from '../cadence.js';
 import { BANDS_NOTE, deriveBands } from '../scoring.js';
-import { ROLE, isOwner, managesOrg } from '../roles.js';
+import { can } from '../core/permissions/can.js';
+import { permissionDenied } from '../core/permissions/permission-denied.js';
+import { ROLE } from '../roles.js';
 import { dbQuery } from './db-helpers.js';
 import { loadOrgFor } from './org-access.js';
 import { findKpi } from './lookup.js';
@@ -41,12 +43,16 @@ export async function goalsFor(client, kpiIds) {
   if (!kpiIds.length) return map;
   const { rows } = await dbQuery(
     client,
-    `SELECT kpi_id, how_often, target FROM kpi_goals WHERE kpi_id = ANY($1::uuid[])`,
+    `SELECT kpi_id, how_often, target, updated_at FROM kpi_goals WHERE kpi_id = ANY($1::uuid[])`,
     [kpiIds],
   );
   for (const r of rows) {
     if (!map.has(r.kpi_id)) map.set(r.kpi_id, []);
-    map.get(r.kpi_id).push({ how_often: r.how_often, target: r.target == null ? null : Number(r.target) });
+    map.get(r.kpi_id).push({
+      how_often: r.how_often,
+      target: r.target == null ? null : Number(r.target),
+      updated_at: r.updated_at,
+    });
   }
   for (const list of map.values()) list.sort((a, b) => cadenceRank(a.how_often) - cadenceRank(b.how_often));
   return map;
@@ -110,13 +116,8 @@ export async function listKpisForOrg(client, membership, orgSlug) {
 export async function addKpi(client, membership, orgSlug, body) {
   const loaded = await loadOrgFor(client, membership, orgSlug);
   if (loaded.error) return loaded;
-  if (!isOwner(membership)) {
-    return {
-      error: {
-        code: 'forbidden',
-        message: 'Only Thyagu can add a KPI. Managers and members follow the register as given.',
-      },
-    };
+  if (!can(membership, 'kpi.edit')) {
+    return permissionDenied(membership, 'kpi.edit');
   }
   const { code, name, unit, how_often, cadence, target, direction } = body ?? {};
   if (!code || !name) return { error: { code: 'invalid', message: 'Name and code are required.' } };
@@ -158,7 +159,7 @@ export async function updateKpiRegister(client, membership, kpiRef, body, orgSlu
 
   const { name, unit, how_often, cadence, target, goals, rollup_method } = body ?? {};
   if (rollup_method !== undefined) {
-    if (!isOwner(membership)) return { error: { code: 'forbidden', message: 'Only Thyagu can change how a KPI rolls up.' } };
+    if (!can(membership, 'kpi.edit')) return permissionDenied(membership, 'kpi.edit');
     if (!['sum', 'average', 'latest', 'manual'].includes(rollup_method)) {
       return { error: { code: 'invalid', message: 'rollup_method must be sum, average, latest or manual.' } };
     }
@@ -177,13 +178,8 @@ export async function updateKpiRegister(client, membership, kpiRef, body, orgSlu
   if (!wantsRegisterEdit) {
     return { error: { code: 'invalid', message: 'Nothing to update.' } };
   }
-  if (!isOwner(membership)) {
-    return {
-      error: {
-        code: 'forbidden',
-        message: 'Only Thyagu can change KPI name, goal, or cadence. Managers can reassign who owns it.',
-      },
-    };
+  if (!can(membership, 'kpi.edit')) {
+    return permissionDenied(membership, 'kpi.edit');
   }
 
   if (goals !== undefined) {
@@ -238,10 +234,8 @@ export async function assignKpiOwner(client, membership, kpiRef, body, orgSlug) 
   if (!kpi) return { error: { code: 'not_found', message: 'KPI not found' } };
   const loaded = await loadOrgFor(client, membership, kpi.slug);
   if (loaded.error) return loaded;
-  if (!managesOrg(membership, loaded.org)) {
-    return {
-      error: { code: 'forbidden', message: 'Only the manager (or Thyagu) can assign who owns a KPI.' },
-    };
+  if (!can(membership, 'person.manage', { org: loaded.org })) {
+    return permissionDenied(membership, 'person.manage');
   }
 
   const nextOwnerId = body?.owner_id ?? body?.membership_id;
@@ -295,13 +289,8 @@ export async function retireKpi(client, membership, kpiRef, orgSlug) {
   if (!kpi) return { error: { code: 'not_found', message: 'KPI not found' } };
   const loaded = await loadOrgFor(client, membership, kpi.slug);
   if (loaded.error) return loaded;
-  if (!isOwner(membership)) {
-    return {
-      error: {
-        code: 'forbidden',
-        message: 'Only Thyagu can remove a KPI. Managers and members follow the register as given.',
-      },
-    };
+  if (!can(membership, 'kpi.edit')) {
+    return permissionDenied(membership, 'kpi.edit');
   }
   await dbQuery(client, `UPDATE kpis SET status = 'retired' WHERE id = $1`, [kpi.id]);
   return { ok: true, kpi_code: kpi.code };
@@ -320,8 +309,8 @@ export async function setTargetByCode(client, membership, body) {
   if (body.kpi_code == null || body.value === undefined) {
     return { error: { code: 'invalid', message: 'kpi_code and value are required' } };
   }
-  if (!isOwner(membership)) {
-    return { error: { code: 'forbidden', message: 'Only Thyagu can set a KPI goal.' } };
+  if (!can(membership, 'kpi.edit')) {
+    return permissionDenied(membership, 'kpi.edit');
   }
   const found = await findKpi(client, membership, body.kpi_code, body.org_slug);
   if (found.error) return found;

@@ -7,7 +7,8 @@
     "dev": "node --env-file=../../.env --watch src/index.js",
     "start": "node --env-file=../../.env src/index.js",
     "test:pilot": "node scripts/pilot-sai.js",
-    "test:agent-tools": "node scripts/agent-tools-smoke.mjs"
+    "test:agent-tools": "node scripts/agent-tools-smoke.mjs",
+    "qlix:provision": "node --env-file=../../.env scripts/qlix-provision.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

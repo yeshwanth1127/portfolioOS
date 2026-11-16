@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "migrate": "node scripts/migrate.js",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "simulate": "node scripts/simulate.js",
+    "bootstrap": "node scripts/bootstrap.js",
+    "demo-password": "node scripts/set-demo-password.js"
   },
   "dependencies": {
     "pg": "^8.13.1"

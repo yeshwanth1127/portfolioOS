@@ -54,12 +54,12 @@ export async function scoreOrgDay(client, orgId, periodDate) {
     const goals = kpi.goals.length ? kpi.goals : [{ how_often: kpi.how_often, target: kpi.target }];
     for (const g of goals) {
       const win = periodWindow(g.how_often, periodDate);
-      // Highest-level accepted submission per day, within the period up to the as-of day.
+      // Highest-level approved (validated or locked) submission per day, within the period up to the as-of day.
       const { rows: daily } = await client.query(
         `SELECT DISTINCT ON (period_date) period_date, value
          FROM submissions
          WHERE kpi_id = $1 AND period_date BETWEEN $2 AND $3
-           AND state IN ('validated','locked','amended') AND value IS NOT NULL
+           AND state IN ('validated','locked') AND value IS NOT NULL
          ORDER BY period_date, CASE level
            WHEN 'owner' THEN 5 WHEN 'manager' THEN 4 WHEN 'vice_manager' THEN 3
            WHEN 'team_lead' THEN 2 ELSE 1 END DESC`,

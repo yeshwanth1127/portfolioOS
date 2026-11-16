@@ -1,0 +1,34 @@
+-- Phase 3 — People & units (SKETCH ONLY — comments for review; not run by migrate.js)
+-- Normative: docs/BUILD.md § 7, docs/phase3-people-units.md § 3
+-- DO NOT rename to .sql until reconciliation scripts and tests exist.
+
+-- Step 0: enums
+-- CREATE TYPE unit_type AS ENUM ('organisation','branch','department','team');
+-- assignment.role: text CHECK against Phase 1 matrix (unit_manager, unit_deputy, team_lead, contributor, …)
+
+-- Step 1: tables (composite workspace_id + UNIQUE (workspace_id, id) on units, assignments, invitations)
+-- See BUILD § 7 for full column list: units.legacy_org_id, assignments.legacy_membership_id,
+-- assignments CHECK (num_nonnulls(unit_id, project_id) = 1) with project_id NULL until Phase 5.
+
+-- Step 2: RLS — ws_isolation restrictive policy on units, assignments, invitations (pattern 010_workspaces.sql)
+
+-- Step 3: trigger — enforce unit_type vs parent.type rules
+
+-- Step 4: backfill units FROM organisations (one organisation unit per row, legacy_org_id = organisations.id)
+
+-- Step 5: backfill assignments FROM memberships
+--   SKIP role = 'owner'
+--   Prefer assignments.id = memberships.id
+--   PASS 1: insert rows; PASS 2: SET reports_to FROM parent_id map
+--   is_primary: one per user per workspace for sole org membership
+--   Map role_level → assignment.role per docs/model/entities.md
+
+-- Step 6: invitations FROM users.is_named = false OR memberships.state = 'pending_name'
+--   Deactivate legacy membership rows; no active assignment for placeholders
+
+-- Step 7: workspace_members — owner role from memberships.role = 'owner'
+
+-- Step 8: reconciliation — packages/db/reconcile/012_units_assignments.sql (counts, reporting graph, managers)
+
+-- Step 9 (later migration in same phase): REVOKE INSERT/UPDATE/DELETE ON memberships FROM portfolio_app
+--   Optional VIEW memberships_compat AS … join assignments for read-only debugging

@@ -25,6 +25,8 @@ docker compose up --build
 
 Open http://localhost:3001 — login `owner@portfolio.local` / `password123`.
 
+On first boot the entrypoint creates `portfolio_migrator` / `portfolio_app` and runs the API as `portfolio_app` (forced RLS). Override passwords with `MIGRATOR_DB_PASSWORD` / `APP_DB_PASSWORD` in `.env`.
+
 Settings → WhatsApp → Generate QR (sidecar is on :3939 inside the same container).
 
 ## Qlix on the host
@@ -48,3 +50,10 @@ docker compose up --build
 ## Why not literally everything in one OS process tree including Postgres?
 
 Postgres runs as its own Compose service (healthchecks, volumes, upgrades). The **app** is one container so you do not juggle five Node terminals. Qlix stays separate because it is a different product with its own DB/Redis.
+
+## Meetings container
+
+`docker compose up` also builds `meetings` (`docker/meetings/Dockerfile`): the LiveKit media server, and
+later the Qlix meeting bot. Set `LIVEKIT_API_SECRET` (32+ chars) in `.env`. Locally, also set
+`LIVEKIT_NODE_IP=127.0.0.1` and `LIVEKIT_USE_EXTERNAL_IP=false`. Ports: 7880 (signalling, localhost only),
+7881/tcp and 7882/udp (media). See [MEETINGS.md](MEETINGS.md).
